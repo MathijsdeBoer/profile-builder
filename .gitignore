@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# FreeCAD backups and test output
+*.FCBak
+*.FCStd1
+*.FCStd.bak
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<path d="M6 30 30 6h26v26L32 56Z" fill="#f2c94c" stroke="#8a6d1f" stroke-width="2.5" stroke-linejoin="round"/>
+<circle cx="45" cy="17" r="5" fill="#fff" stroke="#8a6d1f" stroke-width="2.5"/>
+<text x="31" y="41" font-family="sans-serif" font-size="20" font-weight="bold" fill="#5a4712" text-anchor="middle" transform="rotate(-45 31 35)">€</text>
+</svg>
