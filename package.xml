@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
   <name>Profile Builder</name>
-  <description>Design and generate standard aluminium T-slot and V-slot extrusion profiles (2020, 2040, 4040, 4080, 4545, ...) as parametric objects, place them on sketch edges and produce cut lists.</description>
+  <description>Design and generate standard aluminium T-slot and V-slot extrusion profiles (2020, 2040, 4040, 4080, 4545, ...) as parametric objects, place them on sketch edges and produce cut lists. Largely AI-generated (Claude Opus 5.5); see AI_DISCLOSURE.md.</description>
   <version>0.1.0</version>
   <date>2026-09-24</date>
   <maintainer>Mathijs de Boer</maintainer>

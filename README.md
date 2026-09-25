@@ -3,6 +3,11 @@
 A FreeCAD workbench for designing and generating standard aluminium T-slot and V-slot
 extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric objects.
 
+> **AI-generated code:** most of this project was written by Anthropic's Claude Opus 5.5 model,
+> working as a coding agent in Claude Code, directed and tested by a human. See
+> [AI_DISCLOSURE.md](AI_DISCLOSURE.md) for how it was used, the dates, and what it means for the
+> accuracy of the profiles.
+
 ## Features
 
 - **Catalog**, grouped by slot system:
