@@ -74,10 +74,12 @@ class ProfileTaskPanel:
             if not self.edges:
                 for obj in self.objects:
                     obj.SlotStyle = p.GetString("SlotStyle", "T-slot")
+                    obj.Weight = _saved_weight(p)
                     obj.Anchor = p.GetString("Anchor", "Center")
             else:
                 for obj in self.objects:
                     obj.Anchor = p.GetString("EdgeAnchor", "Center")
+                    obj.Weight = _saved_weight(p)
 
         self.edge_mode = bool(self.objects[0].PathEdge)
         self._build()
@@ -97,8 +99,12 @@ class ProfileTaskPanel:
         main.setWindowTitle(title)
         layout = QtWidgets.QFormLayout(main)
 
-        self.series = _combo([(s.label, k) for k, s in profiles.SERIES.items()])
+        self.series = _combo([(profiles.series_label(k), k) for k in profiles.SERIES])
         layout.addRow("Series", self.series)
+        self.weight = _combo([(w, w) for w in profiles.WEIGHTS])
+        for i, w in enumerate(profiles.WEIGHTS):
+            self.weight.setItemData(i, profiles.WEIGHT_TIPS[w], QtCore.Qt.ToolTipRole)
+        layout.addRow("Weight", self.weight)
 
         self.size = QtWidgets.QComboBox()
         layout.addRow("Size", self.size)
@@ -177,6 +183,7 @@ class ProfileTaskPanel:
         self.form = [main, dims]
 
         self.series.currentIndexChanged.connect(self._series_changed)
+        self.weight.currentIndexChanged.connect(self._weight_changed)
         self.size.currentIndexChanged.connect(self._size_changed)
         self.preset.currentIndexChanged.connect(self._preset_changed)
         for box in self.closed.values():
@@ -197,6 +204,7 @@ class ProfileTaskPanel:
         self._updating = True
         try:
             _select(self.series, obj.Series)
+            _select(self.weight, obj.Weight)
             self._fill_sizes(obj.Series)
             self.cols.setValue(obj.Columns)
             self.rows.setValue(obj.Rows)
@@ -257,12 +265,16 @@ class ProfileTaskPanel:
         self._sync_size()
         self._reset_dims()
 
+    def _weight_changed(self):
+        if not self._updating:
+            self._reset_dims()
+
     def _reset_dims(self):
-        series = profiles.SERIES[self.series.currentData()]
+        dims = profiles.SERIES[self.series.currentData()].dimensions(self.weight.currentData())
         self._updating = True
         for name, attr, _tip in feature.DIMENSIONS:
-            self.dims[name].setValue(getattr(series, attr))
-        self.corner.setChecked(series.corner_hole > 0)
+            self.dims[name].setValue(dims[attr])
+        self.corner.setChecked(dims["corner_hole"] > 0 or dims["chamber_wall"] > 0)
         self._updating = False
         self.changed()
 
@@ -311,6 +323,8 @@ class ProfileTaskPanel:
         for obj in self.objects:
             if obj.Series != key:
                 obj.Series = key
+            if obj.Weight != self.weight.currentData():
+                obj.Weight = self.weight.currentData()
             obj.Columns = self.cols.value()
             obj.Rows = self.rows.value()
             obj.SlotStyle = self.style.currentData()
@@ -346,8 +360,10 @@ class ProfileTaskPanel:
         text = (f"<b>{obj.Designation}</b><br>"
                 f"Section {obj.SectionArea.Value:.1f} mm², {obj.MassPerMeter:.3f} kg/m<br>"
                 f"Saw length {obj.OverallLength.Value:.1f} mm")
-        if series.tap:
+        if series.tappable(obj.Weight):
             text += f"<br>Centre bore for {series.tap} tapping"
+        elif series.tap:
+            text += f"<br>Centre bore Ø{obj.BoreDiameter.Value:g} mm, cannot be tapped"
         if len(self.objects) > 1:
             text += f"<br>{len(self.objects)} pieces, {total:.2f} kg total"
         self.info.setText(text)
@@ -367,6 +383,7 @@ class ProfileTaskPanel:
         p.SetInt("Columns", obj.Columns)
         p.SetInt("Rows", obj.Rows)
         p.SetString("SlotStyle", obj.SlotStyle)
+        p.SetString("Weight", obj.Weight)
         if self.edge_mode:
             p.SetString("EdgeAnchor", obj.Anchor)
         else:
@@ -388,6 +405,11 @@ class ProfileTaskPanel:
             gdoc.resetEdit()  # closes the dialog through unsetEdit
         else:
             Gui.Control.closeDialog()
+
+
+def _saved_weight(p):
+    weight = p.GetString("Weight", "Standard")
+    return weight if weight in profiles.WEIGHTS else "Standard"
 
 
 def _split_camel(name):

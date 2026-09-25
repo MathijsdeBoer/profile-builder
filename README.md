@@ -5,7 +5,19 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
 
 ## Features
 
-- **Catalog**: 15 (slot 3), 20 (slot 6), 30 (slot 8), 40 (slot 8), 40 (slot 10) and 45 (slot 10) series.
+- **Catalog**, grouped by slot system:
+
+  | Grid | B-type (Bosch Rexroth compatible) | I-type (item compatible) | Misumi |
+  |---|---|---|---|
+  | 15 | | | slot 3 |
+  | 20 | slot 6 | slot 5 | |
+  | 30 | slot 8 | slot 6 | |
+  | 40 | slot 10 | slot 8 | |
+  | 45 | slot 10 | slot 8 | |
+
+- **Weight classes**: Standard, Light, Ultralight and Heavy for every series. The slot stays the same,
+  so nuts and connectors fit. Light adds hollow corner chambers. Ultralight has thinner chamber walls
+  and a large core bore that can't be tapped. Heavy has solid corners.
 - **Any size**: tile 1–20 cells per direction (2040, 2080, 4080, 80160, ...). Profiles made of several
   cells get internal chambers and extra bores.
 - **Variations**: T-slot or V-slot, closed faces (presets for 1/2/3-slot profiles), centre bore and corner
@@ -84,8 +96,10 @@ App.ActiveDocument.recompute()
 
 ## Accuracy
 
-Dimensions are typical B-type values. Profiles are close to the real ones, but they are not a
-manufacturer's drawing, and real extrusions differ by a few tenths of a millimetre from vendor to vendor.
+Dimensions are typical values for each slot system. Profiles are close to the real ones, but they are
+not a manufacturer's drawing, and real extrusions differ by a few tenths of a millimetre from vendor to
+vendor. The weight classes use generic rules (wall thickness scaled to the grid size) rather than a
+specific vendor's profile, so their masses are estimates.
 Mass is estimated from the modelled section, which is simplified, so it comes out a little heavy on the
 large 40/45 sizes. Check the vendor datasheet before relying on it.
 

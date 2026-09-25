@@ -24,7 +24,8 @@ DIMENSIONS = (
     ("BoreDiameter", "center_bore", "Diameter of the centre bore (core hole for tapping)"),
     ("CornerRadius", "corner_radius", "Radius of the outer corners"),
     ("VChamfer", "v_chamfer", "Depth of the 45 degree V at the slot opening (V-slot only)"),
-    ("CornerHoleDiameter", "corner_hole", "Diameter of the corner chambers (0 for none)"),
+    ("CornerHoleDiameter", "corner_hole", "Diameter of round corner holes (0 for none)"),
+    ("ChamberWall", "chamber_wall", "Wall thickness around hollow corner chambers (0: no chambers)"),
 )
 
 
@@ -118,6 +119,7 @@ class Profile:
 
     def __init__(self, obj, series=profiles.DEFAULT_SERIES):
         obj.Proxy = self
+        self._restoring = False
         self.add_properties(obj)
         obj.Series = series
         apply_series_defaults(obj)
@@ -135,13 +137,16 @@ class Profile:
 
         add("App::PropertyEnumeration", "Series", "Profile",
             "Profile series; changing it resets the dimensions", list(profiles.SERIES))
+        add("App::PropertyEnumeration", "Weight", "Profile",
+            "Weight class: " + "; ".join(f"{k}: {v}" for k, v in profiles.WEIGHT_TIPS.items())
+            + ". Changing it resets the dimensions.", list(profiles.WEIGHTS))
         add("App::PropertyIntegerConstraint", "Columns", "Profile", "Cells along X (2 for a 4020)", (1, 1, 20, 1))
         add("App::PropertyIntegerConstraint", "Rows", "Profile", "Cells along Y (2 for a 2040)", (1, 1, 20, 1))
         add("App::PropertyEnumeration", "SlotStyle", "Profile", "Slot type", list(profiles.SLOT_STYLES))
         for face in profiles.FACES:
             add("App::PropertyBool", f"Closed{face}", "Profile", f"No slots on the {face.lower()} face", False)
         add("App::PropertyBool", "CenterBore", "Profile", "Cut the centre bores", True)
-        add("App::PropertyBool", "CornerHoles", "Profile", "Cut the corner chambers (40/45 series)", True)
+        add("App::PropertyBool", "CornerHoles", "Profile", "Cut the corner holes or chambers", True)
         add("App::PropertyString", "Designation", "Profile", "Trade name, e.g. 2040", mode=1)
 
         add("App::PropertyLength", "Length", "Length", "Length along the profile axis", 1000.0)
@@ -177,8 +182,18 @@ class Profile:
         add("App::PropertyLength", "OverallLength", "Info", "Tip-to-tip length including miters (saw length)", mode=1)
 
     def onDocumentRestored(self, obj):
-        # Adds properties introduced by newer versions to old documents.
-        self.add_properties(obj)
+        # Adds properties introduced by newer versions to old documents, and
+        # new catalog entries to the Series list, without resetting dimensions
+        # the user may have customised.
+        self._restoring = True
+        try:
+            self.add_properties(obj)
+            if list(obj.getEnumerationsOfProperty("Series")) != list(profiles.SERIES):
+                key = obj.Series
+                obj.Series = list(profiles.SERIES)
+                obj.Series = key
+        finally:
+            self._restoring = False
         self._update_editor_modes(obj)
 
     def _update_editor_modes(self, obj):
@@ -190,9 +205,9 @@ class Profile:
         obj.setEditorMode("MiterEnd", 1 if obj.EndJoint else 0)
 
     def onChanged(self, obj, prop):
-        if "Restore" in obj.State:
+        if "Restore" in obj.State or getattr(self, "_restoring", False):
             return
-        if prop == "Series" and "CellSize" in obj.PropertiesList:
+        if prop in ("Series", "Weight") and "ChamberWall" in obj.PropertiesList:
             apply_series_defaults(obj)
         if prop in ("PathEdge", "StartJoint", "EndJoint"):
             self._update_editor_modes(obj)
@@ -250,6 +265,7 @@ class Profile:
         return None
 
     def loads(self, state):
+        self._restoring = False
         return None
 
     # FreeCAD < 1.0 names
@@ -262,15 +278,17 @@ def dimensions(obj):
 
 
 def apply_series_defaults(obj):
-    series = profiles.SERIES[obj.Series]
+    dims = profiles.SERIES[obj.Series].dimensions(obj.Weight)
     for name, attr, _tip in DIMENSIONS:
-        setattr(obj, name, getattr(series, attr))
-    obj.CornerHoles = series.corner_hole > 0
+        setattr(obj, name, dims[attr])
+    obj.CornerHoles = dims["corner_hole"] > 0 or dims["chamber_wall"] > 0
 
 
 def describe(obj):
-    """Human readable designation, e.g. '2040 V-slot (20-6)'."""
+    """Human readable designation, e.g. '2040 Light V-slot (20-6)'."""
     text = profiles.designation(obj.CellSize.Value, obj.Columns, obj.Rows)
+    if obj.Weight != "Standard":
+        text += " " + obj.Weight
     if obj.SlotStyle != "T-slot":
         text += " " + obj.SlotStyle
     return f"{text} ({obj.Series})"

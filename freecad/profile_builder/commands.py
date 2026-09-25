@@ -72,7 +72,8 @@ class QuickProfile:
         return {
             "Pixmap": size_icon(self.key, self.cols, self.rows),
             "MenuText": f"{name}",
-            "ToolTip": (f"Insert a {name} profile ({self.series.label}).\n"
+            "ToolTip": (f"Insert a {name} profile ({profiles.series_label(self.key)}).\n"
+                        "Uses the weight class and slot style you last picked in the Profile dialog.\n"
                         "With straight edges selected, one profile is placed on each edge."),
         }
 
@@ -90,6 +91,9 @@ class QuickProfile:
             obj = feature.make_profile(self.key, self.cols, self.rows,
                                        p.GetFloat("Length", 1000.0), doc, edge=edge,
                                        SlotStyle=p.GetString("SlotStyle", "T-slot"))
+            weight = p.GetString("Weight", "Standard")
+            if weight in profiles.WEIGHTS:
+                obj.Weight = weight
             obj.Anchor = p.GetString("EdgeAnchor" if edge else "Anchor", "Center")
             created.append(obj)
         doc.recompute()
@@ -112,7 +116,7 @@ class SeriesGroup:
         return 0
 
     def GetResources(self):
-        label = profiles.SERIES[self.key].label
+        label = profiles.series_label(self.key)
         return {"MenuText": label, "ToolTip": f"Insert a {label} profile", "DropDownMenu": True}
 
     def IsActive(self):

@@ -13,8 +13,34 @@ _spec.loader.exec_module(profiles)
 
 @pytest.mark.parametrize("key", list(profiles.SERIES))
 @pytest.mark.parametrize("style", profiles.SLOT_STYLES)
-def test_series_dimensions_are_valid(key, style):
-    assert profiles.validate(profiles.SERIES[key].dimensions(), style) == []
+@pytest.mark.parametrize("weight", profiles.WEIGHTS)
+def test_series_dimensions_are_valid(key, style, weight):
+    assert profiles.validate(profiles.SERIES[key].dimensions(weight), style) == []
+
+
+@pytest.mark.parametrize("key", list(profiles.SERIES))
+def test_weight_classes_keep_the_slot(key):
+    standard = profiles.SERIES[key].dimensions()
+    slot = ("cell", "slot_opening", "lip", "head_width", "head_straight", "slot_depth", "bottom_width")
+    for weight in profiles.WEIGHTS:
+        d = profiles.SERIES[key].dimensions(weight)
+        assert {k: d[k] for k in slot} == {k: standard[k] for k in slot}
+
+
+def test_weight_rules():
+    s = profiles.SERIES["40-8"]
+    assert s.dimensions("Heavy")["corner_hole"] == 0 and s.dimensions("Heavy")["chamber_wall"] == 0
+    assert s.dimensions("Light")["chamber_wall"] > s.dimensions("Ultralight")["chamber_wall"] > 0
+    assert s.dimensions("Ultralight")["center_bore"] > s.center_bore
+    assert s.tappable("Light") and not s.tappable("Ultralight")
+
+
+def test_systems_and_labels():
+    assert {s.system for s in profiles.SERIES.values()} <= set(profiles.SYSTEMS)
+    assert profiles.series_label("20-5") == "20 series, slot 5 (I-type)"
+    assert profiles.series_label("20-6") == "20 series, slot 6 (B-type)"
+    cells = [(s.cell, s.slot_opening) for s in profiles.SERIES.values()]
+    assert cells == sorted(cells)
 
 
 def test_designations():

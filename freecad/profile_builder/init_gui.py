@@ -22,7 +22,7 @@ class ProfileBuilderWorkbench(Gui.Workbench):
         self.appendToolbar("Profile Builder tools", tools)
         self.appendMenu("Profiles", main)
         for key, _group, names in groups:
-            label = commands.profiles.SERIES[key].label
+            label = commands.profiles.series_label(key)
             self.appendMenu(["Profiles", label[0].upper() + label[1:]], names)
         self.appendMenu("Profiles", ["Separator"] + tools)
 

@@ -102,6 +102,38 @@ check(r.Shape.isValid() and abs(bb.YMin) < 1e-6 and abs(bb.XMin + 10) < 1e-6, f"
 check(abs(r.OverallLength.Value - (300 + 10 * 0.57735)) < 1e-3,
       f"30 deg miter saw length {r.OverallLength.Value:.3f}")
 
+# ---- catalog: every series, size, slot style and weight class builds ----------
+
+from freecad.profile_builder import geometry, profiles  # noqa: E402
+
+bad = []
+count = 0
+for key, series in profiles.SERIES.items():
+    for weight in profiles.WEIGHTS:
+        for style in profiles.SLOT_STYLES:
+            for cols, rows in series.sizes:
+                count += 1
+                try:
+                    solid = geometry.make_profile(series.dimensions(weight), cols, rows, 50, style)
+                    if not solid.isValid() or len(solid.Solids) != 1:
+                        bad.append((key, weight, style, cols, rows))
+                except Exception as e:  # noqa: BLE001
+                    bad.append((key, weight, style, cols, rows, str(e)))
+check(not bad, f"catalog: {count} variants build ({bad[:3]})")
+
+w = feature.make_profile("40-8", 1, 1, 100, doc)
+doc.recompute()
+standard_mass = w.MassPerMeter
+w.Weight = "Ultralight"
+doc.recompute()
+check(w.ChamberWall.Value > 0 and w.BoreDiameter.Value > 6.8 and w.MassPerMeter < standard_mass,
+      f"weight: ultralight is hollower ({w.MassPerMeter:.3f} < {standard_mass:.3f} kg/m)")
+check(w.Designation == "4040 Ultralight (40-8)", f"weight in designation: {w.Designation}")
+w.Weight = "Heavy"
+doc.recompute()
+check(w.MassPerMeter > standard_mass and w.ChamberWall.Value == 0, "weight: heavy is solid")
+doc.removeObject(w.Name)
+
 # ---- joints: a 400 mm cube of 2020 on centre lines --------------------------
 
 def lines_object(name, segments):

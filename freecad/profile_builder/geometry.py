@@ -93,6 +93,39 @@ def cavity_outline(d):
     return _mirror(half)
 
 
+def corner_region(d):
+    """Material between two neighbouring slots, in the corner at the cell origin.
+
+    Bounded by the two outer faces, the slot heads and tapers, and the corner
+    of the core. Shrinking it by the wall thickness gives the hollow corner
+    chamber of a light profile.
+    """
+    s = d["cell"]
+    hw = d["head_width"] / 2
+    straight = d["lip"] + d["head_straight"]
+    depth = d["slot_depth"]
+    b = d["bottom_width"] / 2
+    return [(0, 0), (s / 2 - hw, 0), (s / 2 - hw, straight), (s / 2 - b, depth),
+            (depth, depth), (depth, s / 2 - b), (straight, s / 2 - hw), (0, s / 2 - hw)]
+
+
+def _chamber(region, wall):
+    """The region shrunk by the wall thickness, without slivers too thin to extrude.
+
+    Shrinking past the wall and growing back removes every part narrower than
+    about one wall and rounds the chamber corners.
+    """
+    grow = 0.6 * wall
+    try:
+        core = region.makeOffset2D(-(wall + grow))
+    except Exception:
+        return []  # nothing left after shrinking
+    faces = []
+    for f in core.Faces:
+        faces.extend(f.makeOffset2D(grow).Faces)
+    return faces
+
+
 def make_section(d, cols=1, rows=1, style="T-slot", closed=(), center_bore=True,
                  corner_holes=None, anchor="Center"):
     """Return the profile cross-section as a Part.Face in the XY plane.
@@ -111,7 +144,7 @@ def make_section(d, cols=1, rows=1, style="T-slot", closed=(), center_bore=True,
     width, height = cols * s, rows * s
     closed = set(closed)
     if corner_holes is None:
-        corner_holes = d.get("corner_hole", 0) > 0
+        corner_holes = d.get("corner_hole", 0) > 0 or d.get("chamber_wall", 0) > 0
 
     outer = _rounded_rect(width, height, d["corner_radius"])
     tools = []
@@ -161,6 +194,19 @@ def make_section(d, cols=1, rows=1, style="T-slot", closed=(), center_bore=True,
                                        (i, j + 1, 1, -1), (i + 1, j + 1, -1, -1)):
                     if (ci, cj) not in interior:
                         tools.append(_circle(ci * s + sx * off, cj * s + sy * off, hole))
+
+    wall = d.get("chamber_wall", 0)
+    if corner_holes and wall > 0:
+        interior = {(i, j) for i in range(1, cols) for j in range(1, rows)}
+        region = corner_region(d)
+        for i in range(cols):
+            for j in range(rows):
+                for ci, cj, sx, sy in ((i, j, 1, 1), (i + 1, j, -1, 1),
+                                       (i, j + 1, 1, -1), (i + 1, j + 1, -1, -1)):
+                    if (ci, cj) in interior:
+                        continue
+                    pts = [(ci * s + sx * x, cj * s + sy * y) for x, y in region]
+                    tools.extend(_chamber(_face(pts), wall))
 
     section = outer.cut(tools) if tools else outer
     faces = section.Faces
