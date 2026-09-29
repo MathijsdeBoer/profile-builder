@@ -117,21 +117,38 @@ def through_member(joint):
     def length(e):
         return round(feature.path_edge(e[0]).Length, 3)
 
+    def direction(e):
+        """Tie-break: X before Y before Z, then the signed line, then the side of the joint.
+
+        Lines at equal angles to the axes (rails along (1, 1, 0) and (1, -1, 0)
+        in a frame turned 45°) have the same ``axis``; their signed directions
+        tell them apart. The line is flipped so that its first non-zero
+        component is positive, so the key does not depend on the way it was
+        drawn and a member ranks the same at both of its ends. That leaves only
+        collinear members tied, and of those the one on the positive side of
+        the joint wins.
+        """
+        z = feature.member_frame(e[0]).z
+        c = [round(v, 6) + 0.0 for v in (z.x, z.y, z.z)]  # + 0.0 turns -0.0 into 0.0
+        sign = next((1 if v > 0 else -1 for v in c if v), 1)
+        side = sign if e[1] == "Start" else -sign
+        return axis(e) + tuple(v * sign for v in c) + (side,)
+
     # Ties are broken by direction (X before Y before Z), never by object
     # name, so all corners of a symmetric frame make the same choice.
     rule = joint.ThroughRule
     if rule == "Vertical" and max(axis(e)[2] for e in candidates) < 0.9:
         rule = "Longest"
     if rule == "Vertical":
-        key = lambda e: (axis(e)[2], length(e), axis(e))  # noqa: E731
+        key = lambda e: (axis(e)[2], length(e), direction(e))  # noqa: E731
     elif rule == "Horizontal":
-        key = lambda e: (-axis(e)[2], length(e), axis(e))  # noqa: E731
+        key = lambda e: (-axis(e)[2], length(e), direction(e))  # noqa: E731
     elif rule == "Along X":
-        key = lambda e: (axis(e)[0], length(e), axis(e))  # noqa: E731
+        key = lambda e: (axis(e)[0], length(e), direction(e))  # noqa: E731
     elif rule == "Along Y":
-        key = lambda e: (axis(e)[1], length(e), axis(e))  # noqa: E731
+        key = lambda e: (axis(e)[1], length(e), direction(e))  # noqa: E731
     else:
-        key = lambda e: (length(e), axis(e))  # noqa: E731
+        key = lambda e: (length(e), direction(e))  # noqa: E731
     return max(candidates, key=key)
 
 

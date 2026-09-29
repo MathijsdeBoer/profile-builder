@@ -741,4 +741,38 @@ doc.recompute()
 check(abs(panels.slot_room(sheet) - 2.6) < 1e-9 and panels.thermal_fit(sheet)[1] is None,
       f"slot room counts the unused depth ({panels.slot_room(sheet)})")
 
+# ---- ties between rails at equal angles to the axes ------------------------------
+
+import math  # noqa: E402
+
+# A 400 mm square of 2020 turned 45° about Z: every corner joins a rail along (1, 1, 0) and
+# one along (1, -1, 0), equally long and equally far from the axes. Which one runs through
+# must follow the directions, not the order the profiles were made in (their names) or the
+# way the lines were drawn, and each rail runs through at both of its ends or at neither.
+turned = {}
+for variant, numbers, flip in (("made forward", (1, 2, 3, 4), False),
+                               ("made in reverse", (4, 3, 2, 1), False),
+                               ("lines drawn backwards", (1, 2, 3, 4), True)):
+    doc = App.newDocument("turned")
+    r = 200 * math.sqrt(2)
+    pts = [(r, 0, 0), (0, r, 0), (-r, 0, 0), (0, -r, 0)]
+    lines = lines_object("TurnedSquare", [(b, a) if flip else (a, b) for a, b in zip(pts, pts[1:] + pts[:1])])
+    doc.recompute()
+    members = [feature.make_profile("20-6", 1, 1, 100, doc, edge=(lines, f"Edge{i}")) for i in numbers]
+    doc.recompute()
+    joints.create_joints(doc, members, "Butt", "Longest")
+    doc.recompute()
+    through = {}
+    for j in [o for o in doc.Objects if joints.is_joint(o)]:
+        corner = tuple(round(c, 3) + 0.0 for c in j.Shape.Vertexes[0].Point)
+        through[corner] = joints.through_member(j)[0].PathEdge[1][0]
+    turned[variant] = through, sorted(round(p.Length.Value, 3) for p in members)
+    App.closeDocument(doc.Name)
+base, lengths = turned["made forward"]
+check(len(base) == 4 and lengths == [380.0, 380.0, 420.0, 420.0],
+      f"turned square: two rails run through at both ends ({lengths})")
+for variant in ("made in reverse", "lines drawn backwards"):
+    check(turned[variant][0] == base, f"turned square {variant}: same through member per corner "
+                                      f"({turned[variant][0]}, made forward {base})")
+
 print("\n%d failure(s)" % len(failures))
