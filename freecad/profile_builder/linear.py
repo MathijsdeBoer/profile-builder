@@ -515,4 +515,7 @@ def make_carriage(doc, rail, face="Top", body=None, **props):
     obj.Neighbours = neighbours(obj)
     if App.GuiUp:
         ViewProviderCarriage(obj.ViewObject)
+        # The body is shown through the carriage (set before the view provider existed).
+        if obj.Body is not None and getattr(obj.Body, "ViewObject", None) is not None:
+            obj.Body.ViewObject.Visibility = False
     return obj

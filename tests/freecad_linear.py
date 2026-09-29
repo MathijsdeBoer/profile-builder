@@ -331,6 +331,9 @@ try:
     doc.recompute()
     check(car.PositionMode == "Percent" and car.Run == 0, "panel: cancel restores the carriage")
     App.closeDocument(doc.Name)
+    from freecad.profile_builder import commands  # noqa: E402,F401  (the GUI modules import headless)
+    resources = linear_ui.CreateCarriage().GetResources()
+    check(os.path.exists(resources["Pixmap"]) and resources["MenuText"] == "Carriage...", "command and icon")
 except ImportError as e:
     check(False, f"panel test could not run: {e}")
 

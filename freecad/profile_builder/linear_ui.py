@@ -89,7 +89,10 @@ class CreateCarriage:
                     rail = obj
                     picked = [p for p, sub in zip(sel.PickedPoints, sel.SubElementNames) if sub.startswith("Face")]
                     if picked:
-                        face = linear.face_at(rail, picked[0]) or face
+                        try:
+                            face = linear.face_at(rail, picked[0]) or face
+                        except ValueError:
+                            pass  # a broken path edge: the carriage reports it after creation
             elif (body is None and not (joints.is_joint(obj) or panels.is_panel(obj) or linear.is_carriage(obj))
                   and hasattr(obj, "Shape") and obj.Shape.Solids):
                 body = obj
