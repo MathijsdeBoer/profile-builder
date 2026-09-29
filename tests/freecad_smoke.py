@@ -1,18 +1,29 @@
 """Headless feature test. Run with:  freecadcmd tests/freecad_smoke.py"""
 
 import os
+import sys
 import tempfile
 
 import freecad
 
 ROOT = os.getcwd()
-freecad.__path__.append(os.path.join(ROOT, "freecad"))
+# FreeCAD may already have loaded an installed copy of the workbench (for
+# example through a link in its Mod folder) before this script runs. Drop it
+# and put this checkout first, or a worktree would silently test other code.
+for _name in [m for m in sys.modules if m == "freecad.profile_builder" or m.startswith("freecad.profile_builder.")]:
+    del sys.modules[_name]
+freecad.__path__.insert(0, os.path.join(ROOT, "freecad"))
 
 import FreeCAD as App  # noqa: E402
 import Part  # noqa: E402
 import Sketcher  # noqa: E402
 
 from freecad.profile_builder import cutlist, feature, joints, panels, pricing  # noqa: E402
+
+_loaded = os.path.normcase(os.path.realpath(feature.__file__))
+if not _loaded.startswith(os.path.normcase(os.path.realpath(ROOT))):
+    raise SystemExit(f"testing the wrong copy of the workbench: {_loaded} is not under {ROOT}")
+print(f"testing {os.path.dirname(_loaded)}")
 
 failures = []
 
@@ -494,52 +505,69 @@ try:
 except ImportError as e:
     check(False, f"panel dialog test could not run: {e}")
 
-# A document saved by the previous version (commit ead3f7d, see tests/fixtures).
+# Documents saved by earlier versions (see tests/fixtures/make_legacy_fixture.py).
 fixture = os.path.join(ROOT, "tests", "fixtures")
 import json  # noqa: E402
 import shutil  # noqa: E402
-expected = json.load(open(os.path.join(fixture, "legacy_ead3f7d.json"), encoding="utf-8"))
-legacy_path = os.path.join(tempfile.gettempdir(), "pb_legacy.FCStd")
-shutil.copy(os.path.join(fixture, "legacy_ead3f7d.FCStd"), legacy_path)
-doc = App.openDocument(legacy_path)
-# Pass 1: open and make a cut list straight away. FreeCAD 1.1 already recomputes
-# the profiles while loading; recompute_if_needed covers it when that does not happen.
-probe = doc.getObject(list(expected["miters"])[0])
-probe.Ix, probe.MiterStartAxis = 0.0, ""
-check(feature.needs_refresh(probe), "legacy: missing outputs are detected")
-cutlist.recompute_if_needed(doc)
-check(all(doc.getObject(n).Ix > 0 for n in expected["lengths"]), "legacy: cut list refreshes section properties")
-check(all(doc.getObject(n).MiterStartAxis for n in expected["miters"]), "legacy: cut list refreshes miter axes")
-App.closeDocument(doc.Name)
-shutil.copy(os.path.join(fixture, "legacy_ead3f7d.FCStd"), legacy_path)
-# Pass 2: rename the hand-picked profile before anything recomputes.
-doc = App.openDocument(legacy_path)
-swapped = doc.getObject(expected["swapped_joint"])
-chosen = [o for o in doc.Objects if o.Label == expected["through"]][0]
-check(swapped.ThroughName == chosen.Name, "legacy: manual joint choice resolved to a name on open")
-chosen.Label = "Renamed before any recompute"
-cutlist.recompute_if_needed(doc)
-lengths = {n: round(doc.getObject(n).Length.Value, 6) for n in expected["lengths"]}
-check(lengths == expected["lengths"], f"legacy: same lengths after rename and recompute ({lengths})")
-saw = {n: round(doc.getObject(n).OverallLength.Value, 6) for n in expected["saw"]}
-check(saw == expected["saw"], "legacy: same saw lengths")
-check(all(doc.getObject(n).Ix > 0 for n in expected["lengths"]), "legacy: section properties filled in")
-frame = [doc.getObject(n) for n in expected["miters"]]
-check(all(p.MiterStartAxis and p.MiterEndAxis for p in frame), "legacy: miter axes filled in")
-report = cutlist.build_report(doc)
-frame_rows = [r for r in report.pieces if r[PIECE.index("Saw length (mm)")] in (220.0, 320.0)]
-check(len(frame_rows) == 2 and all(r[PIECE.index("Qty")] == 2 for r in frame_rows), "legacy: frame pieces grouped")
-glass = doc.getObject(expected["panel"])
-check(abs(glass.Density - 2.4) < 1e-9 and abs(glass.Expansion - 9) < 1e-9,
-      f"legacy: panel keeps the typed density, expansion from the material ({glass.Density}, {glass.Expansion})")
-check([round(glass.Width.Value, 6), round(glass.Height.Value, 6)] == expected["panel_size"], "legacy: panel size")
-corner = frame[0].StartJoint
-ends = joints.ends_of(corner)
-doc.removeObject(corner.Name)
-doc.recompute()
-check(all(getattr(p, f"Miter{e}").Value == 0 for p, e in ends), "legacy: removing a miter joint squares the ends")
-check(all(o.isValid() for o in doc.Objects), "legacy: everything valid")
-App.closeDocument(doc.Name)
+
+
+def check_legacy(tag):
+    expected = json.load(open(os.path.join(fixture, f"{tag}.json"), encoding="utf-8"))
+    legacy_path = os.path.join(tempfile.gettempdir(), f"pb_{tag}.FCStd")
+    shutil.copy(os.path.join(fixture, f"{tag}.FCStd"), legacy_path)
+    doc = App.openDocument(legacy_path)
+    first = doc.getObject(list(expected["lengths"])[0])
+    check("Ix" in first.PropertiesList, f"{tag}: new properties added on open")
+    # Pass 1: open and make a cut list straight away.
+    probe = doc.getObject(list(expected["miters"])[0])
+    probe.Ix, probe.MiterStartAxis = 0.0, ""
+    check(feature.needs_refresh(probe), f"{tag}: missing outputs are detected")
+    cutlist.recompute_if_needed(doc)
+    check(all(doc.getObject(n).Ix > 0 for n in expected["lengths"]), f"{tag}: cut list refreshes section properties")
+    check(all(doc.getObject(n).MiterStartAxis for n in expected["miters"]), f"{tag}: cut list refreshes miter axes")
+    App.closeDocument(doc.Name)
+    shutil.copy(os.path.join(fixture, f"{tag}.FCStd"), legacy_path)
+    # Pass 2: rename the hand-picked profile before anything recomputes.
+    doc = App.openDocument(legacy_path)
+    swapped = doc.getObject(expected["swapped_joint"])
+    chosen = [o for o in doc.Objects if o.Label == expected["through"]][0]
+    check(swapped.ThroughName == chosen.Name, f"{tag}: manual joint choice resolved to a name on open")
+    for name, props in expected.get("custom", {}).items():
+        obj = doc.getObject(name)
+        kept = {p: getattr(obj, p).Value for p in props}
+        check(all(abs(kept[p] - v) < 1e-9 for p, v in props.items()), f"{tag}: custom dimensions kept ({kept})")
+    chosen.Label = "Renamed before any recompute"
+    cutlist.recompute_if_needed(doc)
+    lengths = {n: round(doc.getObject(n).Length.Value, 6) for n in expected["lengths"]}
+    check(lengths == expected["lengths"], f"{tag}: same lengths after rename and recompute ({lengths})")
+    saw = {n: round(doc.getObject(n).OverallLength.Value, 6) for n in expected["saw"]}
+    check(saw == expected["saw"], f"{tag}: same saw lengths")
+    for name, props in expected.get("custom", {}).items():
+        obj = doc.getObject(name)
+        check(all(abs(getattr(obj, p).Value - v) < 1e-9 for p, v in props.items()),
+              f"{tag}: custom dimensions survive recompute")
+    check(all(doc.getObject(n).Ix > 0 for n in expected["lengths"]), f"{tag}: section properties filled in")
+    frame = [doc.getObject(n) for n in expected["miters"]]
+    check(all(p.MiterStartAxis and p.MiterEndAxis for p in frame), f"{tag}: miter axes filled in")
+    report = cutlist.build_report(doc)
+    frame_rows = [r for r in report.pieces if r[PIECE.index("Saw length (mm)")] in (220.0, 320.0)]
+    check(len(frame_rows) == 2 and all(r[PIECE.index("Qty")] == 2 for r in frame_rows), f"{tag}: frame pieces grouped")
+    check(not report.errors, f"{tag}: no errors in the cut list ({report.errors})")
+    glass = doc.getObject(expected["panel"])
+    check(abs(glass.Density - 2.4) < 1e-9 and abs(glass.Expansion - 9) < 1e-9,
+          f"{tag}: panel keeps the typed density, expansion from the material ({glass.Density}, {glass.Expansion})")
+    check([round(glass.Width.Value, 6), round(glass.Height.Value, 6)] == expected["panel_size"], f"{tag}: panel size")
+    corner = frame[0].StartJoint
+    ends = joints.ends_of(corner)
+    doc.removeObject(corner.Name)
+    doc.recompute()
+    check(all(getattr(p, f"Miter{e}").Value == 0 for p, e in ends), f"{tag}: removing a miter joint squares the ends")
+    check(all(o.isValid() for o in doc.Objects), f"{tag}: everything valid")
+    App.closeDocument(doc.Name)
+
+
+for tag in ("legacy_8733122", "legacy_ead3f7d"):
+    check_legacy(tag)
 
 # ---- regressions from the second review round -----------------------------------
 

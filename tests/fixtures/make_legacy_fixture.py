@@ -1,29 +1,44 @@
-"""Build legacy_ead3f7d.FCStd with the version at commit ead3f7d.
+"""Build legacy_<commit>.FCStd with an older version of the workbench.
 
-The fixture checks that documents saved by that version still open correctly.
-To rebuild it (only needed if the fixture must change):
+The fixtures check that documents saved by older versions still open
+correctly: legacy_8733122 (the first version) and legacy_ead3f7d. To rebuild
+one (only needed if the fixture must change), for example for ead3f7d:
 
-    git worktree add --detach ../pb-ead3f7d ead3f7d
-    cd ../pb-ead3f7d
-    freecadcmd <this repo>/tests/fixtures/make_legacy_fixture.py
-    git worktree remove ../pb-ead3f7d
+    git worktree add --detach ../pb-old ead3f7d
+    cd ../pb-old
+    PB_FIXTURE_NAME=legacy_ead3f7d PB_FIXTURE_DIR=<this repo>/tests/fixtures \\
+        freecadcmd <this repo>/tests/fixtures/make_legacy_fixture.py
+    git worktree remove ../pb-old
 
-It writes the document and a JSON file with the lengths that version computed.
+Run it from the old worktree: it loads the workbench from the current directory,
+and refuses to run when it finds the current code instead (FreeCAD may have an
+installed copy loaded already). It writes the document and a JSON file with the
+values that version computed.
 """
 
 import json
 import os
+import sys
 
 import freecad
 
 OLD = os.getcwd()  # the worktree of the old version
 HERE = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else None
-freecad.__path__.append(os.path.join(OLD, "freecad"))
+# FreeCAD may already have loaded an installed (current) copy of the workbench,
+# for example through a link in its Mod folder. Drop it and load the old one.
+for _name in [m for m in sys.modules if m == "freecad.profile_builder" or m.startswith("freecad.profile_builder.")]:
+    del sys.modules[_name]
+freecad.__path__.insert(0, os.path.join(OLD, "freecad"))
 
 import FreeCAD as App  # noqa: E402
 import Part  # noqa: E402
 
 from freecad.profile_builder import feature, joints, panels, pricing  # noqa: E402
+
+if not os.path.normcase(os.path.realpath(feature.__file__)).startswith(os.path.normcase(os.path.realpath(OLD))):
+    raise SystemExit(f"loaded {feature.__file__}, not the old version in {OLD}")
+if hasattr(feature, "needs_refresh") or hasattr(joints, "_live"):
+    raise SystemExit("this is not the old version: it already has the newer joint and profile code")
 
 OUT = os.environ.get("PB_FIXTURE_DIR") or HERE
 doc = App.newDocument("legacy")
@@ -45,6 +60,7 @@ for i, p in enumerate(sides):
     p.Label = f"Side {i + 1}"
 for i, p in enumerate(frame):
     p.Label = f"Frame {i + 1}"
+sides[3].SlotOpening = 6.0  # a customised dimension, which later versions must keep
 doc.recompute()
 joints.create_joints(doc, sides, "Butt", "Longest")
 joints.create_joints(doc, frame, "Miter", "Longest")
@@ -68,8 +84,10 @@ expected = {
     "through": swapped.Through,
     "panel": glass.Name,
     "panel_size": [round(glass.Width.Value, 6), round(glass.Height.Value, 6)],
+    "custom": {sides[3].Name: {"SlotOpening": 6.0}},
 }
-doc.saveAs(os.path.join(OUT, "legacy_ead3f7d.FCStd"))
-with open(os.path.join(OUT, "legacy_ead3f7d.json"), "w", encoding="utf-8") as f:
+NAME = os.environ.get("PB_FIXTURE_NAME", "legacy_ead3f7d")
+doc.saveAs(os.path.join(OUT, f"{NAME}.FCStd"))
+with open(os.path.join(OUT, f"{NAME}.json"), "w", encoding="utf-8") as f:
     json.dump(expected, f, indent=1)
 print("fixture written", expected["through"])

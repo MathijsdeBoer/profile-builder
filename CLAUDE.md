@@ -35,8 +35,15 @@ package through the working directory:
 - A traceback about "Panel is too thick" is expected: that is a deliberate error case.
 - The file name must not match `test_*.py` / `*_test.py`, or pytest will try to collect it.
 
-To use the source tree without installing it, extend FreeCAD's namespace package before importing:
-`import freecad; freecad.__path__.append("<repo>/freecad")`.
+To use a source tree without installing it, put it first on FreeCAD's namespace package, after
+dropping any copy FreeCAD already loaded (see the top of `tests/freecad_smoke.py`):
+`freecad.__path__.insert(0, "<tree>/freecad")`, with the `freecad.profile_builder*` entries removed from
+`sys.modules` first.
+- The main checkout is installed through a junction in FreeCAD's Mod folder, so FreeCAD loads it at
+  startup. A plain `freecad.__path__.append(...)` in a worktree or an old checkout therefore silently runs
+  the main checkout's code. The smoke test prints `testing <path>` and stops if the path is wrong.
+- The GUI always loads the installed (main) copy, so GUI checks of a branch only work from the main
+  checkout with that branch checked out.
 
 - For GUI checks, run `freecad.exe script.py`. The script should drive steps with
   `QtCore.QTimer.singleShot`, write results to a log file, and end with `os._exit(0)`.
@@ -124,8 +131,9 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - `onChanged` handlers must return early while `feature.replaying(obj)` is true. Undo and Cancel
     (`abortTransaction`) write old values back with `Document.Transacting` set, and reacting to them
     (resetting dimensions, switching a joint to Manual) corrupts what they restore.
-  - `tests/fixtures/legacy_ead3f7d.FCStd` is a document saved by an older version; the smoke test opens
-    it and compares with the stored results. Don't regenerate it with the current code.
+  - `tests/fixtures/legacy_<commit>.FCStd` are documents saved by older versions (8733122, the first,
+    and ead3f7d). The smoke test opens each and compares with the stored results. Regenerate them only
+    from a worktree of that commit with `make_legacy_fixture.py`, which refuses to run on current code.
 - **Panel materials**: `panels.material_data` returns None for unknown or ambiguous names ("glass-clear
   PETG"). `Expansion == 0` means "not known", and the thermal check is then skipped rather than guessed.
 - **Product keys**:

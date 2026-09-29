@@ -43,5 +43,10 @@
  "panel_size": [
   291.2,
   191.2
- ]
+ ],
+ "custom": {
+  "Profile003": {
+   "SlotOpening": 6.0
+  }
+ }
 }

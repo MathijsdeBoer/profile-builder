@@ -1,0 +1,52 @@
+{
+ "lengths": {
+  "Profile": 400.0,
+  "Profile001": 380.0,
+  "Profile002": 420.0,
+  "Profile003": 400.0,
+  "Profile004": 300.0,
+  "Profile005": 200.0,
+  "Profile006": 300.0,
+  "Profile007": 200.0
+ },
+ "saw": {
+  "Profile": 400.0,
+  "Profile001": 380.0,
+  "Profile002": 420.0,
+  "Profile003": 400.0,
+  "Profile004": 320.0,
+  "Profile005": 220.0,
+  "Profile006": 320.0,
+  "Profile007": 220.0
+ },
+ "miters": {
+  "Profile004": [
+   -45.00000000000001,
+   -45.00000000000001
+  ],
+  "Profile005": [
+   -45.00000000000001,
+   -45.00000000000001
+  ],
+  "Profile006": [
+   -45.00000000000001,
+   -45.00000000000001
+  ],
+  "Profile007": [
+   -45.00000000000001,
+   -45.00000000000001
+  ]
+ },
+ "swapped_joint": "Joint",
+ "through": "Side 4",
+ "panel": "Panel",
+ "panel_size": [
+  291.2,
+  191.2
+ ],
+ "custom": {
+  "Profile003": {
+   "SlotOpening": 6.0
+  }
+ }
+}

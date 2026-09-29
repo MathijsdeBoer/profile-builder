@@ -4,11 +4,15 @@ Run with FreeCAD's console:  freecadcmd tools/make_icons.py
 """
 
 import os
+import sys
 
 import freecad
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) if "__file__" in globals() else os.getcwd()
-freecad.__path__.append(os.path.join(ROOT, "freecad"))
+# Use this checkout, not an installed copy FreeCAD may already have loaded.
+for _name in [m for m in sys.modules if m == "freecad.profile_builder" or m.startswith("freecad.profile_builder.")]:
+    del sys.modules[_name]
+freecad.__path__.insert(0, os.path.join(ROOT, "freecad"))
 
 from freecad.profile_builder import geometry, profiles  # noqa: E402
 
