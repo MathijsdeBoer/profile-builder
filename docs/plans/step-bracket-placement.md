@@ -19,9 +19,11 @@ Done:
   writes ElementCount and PlacementList only (ShowElement stays off, so no objects are created during
   recompute). The STEP colours are kept and no geometry is copied. With no positions it keeps one hidden
   element, because a link array without elements would show the part once at the origin.
-- **Links, acyclic**: `Joints` plus a hidden `Members` list of the profiles at those joints, updated in
-  `execute`. Profiles and joints never link to it. `AllJoints` (set when the command is run without
-  selecting joints) follows every joint in the document, also ones made later, through `mustExecute`.
+- **Links, acyclic**: `Joints` plus the hidden `Members` (the profiles) and `FrameJoints` (the other
+  joints) of the frame those joints are in: everything connected to them through joints. They are
+  updated in `execute`, and `mustExecute` notices a joint or profile joined to the frame later, which
+  touches nothing the object links to. Profiles and joints never link to it. `AllJoints` (set when the
+  command is run without selecting joints) follows every joint in the document, also ones made later.
 - **Placement**, at butt joints with square members:
   - between a profile ending at the joint and the one running through, on the side where that one
     continues (one side at a corner, both at a T-junction);
@@ -29,18 +31,31 @@ Done:
     other's face. With 3030 posts and 2020 rails they do not, so that corner gets none.
   - One bracket per slot that lines up on both contact faces (within 0.5 mm), so a 40 x 40 profile of
     the 20 series gets two side by side. Closed faces get none; misaligned slots (a flat 2040 rail on a
-    2020 post) and profiles turned by a Spin that is not a multiple of 90° get a note.
+    2020 post) and a profile with no face square to the other one get a note. That note names the Spin
+    only when the Spin is not a multiple of 90°: in a frame turned about Z, the posts need a Spin to line
+    up with the rails, although their own Spin is 0.
+  - Which leg lies on which of two butting profiles is decided by direction (X, then Y, then Z, then the
+    signed direction of the line), never by object names, also in a frame turned by 45°.
   - The brackets follow the profiles' faces, not the sketch lines, so Anchor, Spin and size changes are
     taken into account. A joint `Gap` is bridged (the bracket still sits on both faces); a butting end
     trimmed short of the other profile (negative Extend) leaves no corner, so it gets none.
-  - `Rule`: "Inner faces" skips the side of a T-junction that faces away from the middle of the frame
-    (the length-weighted centre of the members' path edges); "All open faces" places both.
+  - `Rule`: "Inner faces" places brackets on the sides of a T-junction that face into the frame: where
+    the profile running through carries on to another joint of the frame. A side where it ends freely
+    (a stub, such as a post standing out above a rail) gets none, unless it ends freely both ways (posts
+    standing on the floor); then the side where the rest of the frame reaches further gets them, or both
+    when they reach equally far. The whole frame counts, not only the selected joints, so a shelf rail
+    low in a closed frame or an off-centre middle post gets brackets on both sides. "All open faces"
+    always places both.
 - **Calibration** (`brackets.calibrate`, command **Calibrate bracket**, and **Brackets...** itself): the
   user picks the two contact faces, first the one on the profile that ends at the joint. The origin
   goes on the line where their planes meet, in the middle of the whole part's width, so a key split
   face or a chamfered corner does not matter. The corner vertex is optional and only checked. Picks
-  work on a Part feature, through an App::Part (as STEP imports are) and plain groups, and on a placed
-  bracket. Picking the inner faces of the L is refused.
+  work on a Part feature, a PartDesign body or a link, through an App::Part (as STEP imports are) and
+  plain groups, and on a placed bracket. The part is the picked object, or the App::Part directly
+  around it when that holds one bracket (a body, perhaps with its screws). A library of brackets or a
+  whole design in an App::Part around it is passed over, and a part that is or holds a profile, joint,
+  panel or Brackets object is refused, also by **Brackets...** without picks (a selected group of the
+  frame's profiles). Picking the inner faces of the L is refused.
 - `SwapLegs` and `SlotOffset` (along the bracket's width) adjust the frame.
 - The **Brackets...** command hides the original part (the brackets show it in the corners); deleting
   the Brackets object shows it again unless another Brackets object places it.
@@ -53,8 +68,12 @@ Done:
   real STEP file and imported again (an App::Part holding the body, with its own Origin), calibrated
   through the import and placed on a second cube. The test also covers joint swaps, SwapLegs,
   SlotOffset, joint gaps, trimmed ends, anchors, Spin, size changes, two slots per face, stretched
-  sketches, save/reopen, undo, rules at T-junctions, closed faces, misaligned slots, miter joints, a
-  missing part, AllJoints and the command flow (with a stand-in for the GUI selection).
+  sketches, save/reopen, undo, rules at T-junctions (a goalpost, a closed frame with a low shelf, posts
+  standing out above the top rail, an off-centre middle post, a joint added later on a stub), closed
+  faces, misaligned slots, frames turned 30°, 45° and 135° about Z (made in two orders), nested
+  App::Parts (a library of brackets, a whole design), a PartDesign body, miter joints, a missing part,
+  AllJoints and the command flow (with a stand-in for the GUI selection, also refusing a selected group
+  or link that holds the frame's profiles).
 
 Not done yet:
 - Miter corners (noted in the object's Notes) and angled butt joints.
@@ -71,6 +90,14 @@ Not done yet:
   commands were only run headless with a stand-in selection).
 - More than one bracket part per Brackets object (for example different brackets for the 20 and 30
   series corners of one frame); for now, use one Brackets object per part with selected joints.
+- A bracket kit whose bracket and fasteners are separate App::Parts inside one App::Part looks like a
+  library of brackets, so calibrating on it places only the picked App::Part. Putting the kit's bodies
+  in one App::Part places the whole kit.
+- The "Inner faces" rule decides per T-junction side and adds no note for a side it leaves out; the
+  count in the task panel and the cut list is for the brackets actually placed.
+- Outside this plan: the index row in `docs/plans/README.md` still says Planned (it should say Partly
+  done) and `AI_DISCLOSURE.md` has no row for this work yet; both were left for the merge, so the
+  parallel branches do not conflict there.
 
 ## Problem
 

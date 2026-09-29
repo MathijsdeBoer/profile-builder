@@ -401,7 +401,8 @@ doc.recompute()
 # A rail turned by Spin has no face flat in the corners: none there, and a note says why.
 goal[2].Spin = 30
 doc.recompute()
-check(gb.Count == 0 and any("turned by Spin" in n for n in gb.Notes), f"turned rail: noted, no brackets ({gb.Notes})")
+check(gb.Count == 0 and gb.Notes and all(f"{goal[2].Label} is turned by its Spin (30°) and has no face square to"
+                                         in n for n in gb.Notes), f"turned rail: noted, no brackets ({gb.Notes})")
 goal[2].Spin = 90  # a quarter turn keeps the faces square
 doc.recompute()
 wrong, overlap, clash = fit_report(goal)
@@ -452,6 +453,101 @@ wrong, overlap, clash = fit_report(goal + [middle])
 heights = sorted({round(pl.Base.z, 3) for pl in gb.PlacementList})
 check(gb.Count == 6 and not wrong and overlap < 1e-3 and clash < 1e-3 and heights == [400.0, 440.0],
       f"anchored rail: brackets at its faces ({gb.Count}, {heights}, {wrong[:2]})")
+
+# ---- Inner faces: which sides of a T-junction face into the frame -----------------------------
+# A side faces into the frame where the profile running through carries on to another joint, not
+# where it ends freely (a stub). Where it ends freely both ways, the side where the rest of the
+# frame reaches further counts. None of this may depend on where the middle of the frame is.
+
+
+def frame_with(name, segs):
+    """(profiles, joints, bracket part) of a 2020 frame on ``segs`` in a new document, posts running through."""
+    global doc
+    doc = App.newDocument(name)
+    shape_lines = lines_object("Lines", segs)
+    doc.recompute()
+    profs = [feature.make_profile("20-6", 1, 1, 100, doc, edge=(shape_lines, f"Edge{i + 1}"))
+             for i in range(len(segs))]
+    doc.recompute()
+    made = joints.create_joints(doc, profs, "Butt", "Vertical")
+    doc.recompute()
+    bracket_part = doc.addObject("Part::Feature", "Bracket")
+    bracket_part.Shape = L
+    doc.recompute()
+    return profs, made, bracket_part
+
+
+def base(pl):
+    return tuple(round(c, 3) for c in pl.Base)
+
+
+# A closed frame with a shelf rail a third of the way up: every corner under and over the shelf is
+# enclosed, although the shelf is below the middle of the frame.
+shelf_frame, shelf_joints, part = frame_with("shelf", [
+    ((0, 0, 0), (0, 0, 600)), ((400, 0, 0), (400, 0, 600)),
+    ((0, 0, 0), (400, 0, 0)), ((0, 0, 600), (400, 0, 600)), ((0, 0, 200), (400, 0, 200))])
+shelf = shelf_frame[4]
+br = brackets.make_brackets(doc, part, shelf_joints)
+doc.recompute()
+LOCAL = L
+wrong, overlap, clash = fit_report(shelf_frame)
+under = [pl for where, pl in zip(br.Positions, br.PlacementList) if shelf.Label in where and pl.Base.z < 200]
+check(br.Count == 8 and len(under) == 2, f"shelf frame: inner faces on both sides of the shelf ({br.Count}, "
+      f"{len(under)} under it)")
+check(not wrong and overlap < 1e-3 and clash < 1e-3, f"shelf frame: the brackets fit ({wrong[:2]}, {overlap:.4f})")
+check(not br.Notes, f"shelf frame: no notes ({br.Notes})")
+tees = [j for j in shelf_joints if list(j.PassingMembers)]
+only = brackets.make_brackets(doc, part, tees)
+doc.recompute()
+check(len(tees) == 2 and only.Count == 4 and sorted(j.Name for j in only.FrameJoints) ==
+      sorted(j.Name for j in shelf_joints if j not in tees),
+      f"shelf joints alone: the same 4 brackets, judged on the whole frame ({only.Count})")
+check(not any(only in o.OutList or br in o.OutList for o in shelf_frame + shelf_joints),
+      "no profile or joint links to the brackets")
+
+# Posts standing out above the top rail: the stubs get none, the rest of the frame is unchanged.
+stub_frame, stub_joints, part = frame_with("stubs", [
+    ((0, 0, 0), (0, 0, 700)), ((400, 0, 0), (400, 0, 700)),
+    ((0, 0, 0), (400, 0, 0)), ((0, 0, 600), (400, 0, 600)), ((0, 0, 200), (400, 0, 200))])
+br = brackets.make_brackets(doc, part, stub_joints)
+doc.recompute()
+wrong, overlap, clash = fit_report(stub_frame)
+top = sorted(base(pl) for where, pl in zip(br.Positions, br.PlacementList) if stub_frame[3].Label in where)
+check(br.Count == 8 and len(top) == 2 and all(z < 600 for _x, _y, z in top) and not wrong and overlap < 1e-3,
+      f"posts standing out: none on the stubs, 8 in all ({br.Count}, top rail: {top})")
+br.Rule = "All open faces"
+doc.recompute()
+check(br.Count == 10, f"posts standing out, all open faces: on the stubs too ({br.Count})")
+
+# The goalpost with its middle post off-centre: the rail carries on both ways from the middle post.
+goal, goal_joints, part = frame_with("offcentre", [
+    ((0, 0, 0), (0, 0, 500)), ((400, 0, 0), (400, 0, 500)), ((0, 0, 400), (400, 0, 400)),
+    ((100, 0, 0), (100, 0, 400))])
+br = brackets.make_brackets(doc, part, goal_joints)
+doc.recompute()
+wrong, overlap, clash = fit_report(goal)
+at_middle = sorted(base(pl) for where, pl in zip(br.Positions, br.PlacementList) if goal[3].Label in where)
+check(br.Count == 4 and len(at_middle) == 2 and at_middle[0][0] < 100 < at_middle[1][0] and not wrong
+      and overlap < 1e-3 and clash < 1e-3,
+      f"off-centre middle post: a bracket on each side of it, under the rail at the posts ({br.Count}, {at_middle})")
+check(all(pl.Base.z < 400 for pl in br.PlacementList), "off-centre middle post: none on the posts' stubs")
+
+# A joint made later on a post's stub encloses the space above the rail. The brackets at the rail's
+# ends (no AllJoints) follow, although no profile they are at has changed.
+ends = [j for j in goal_joints if goal[0].Name in j.PassingMembers or goal[1].Name in j.PassingMembers]
+sel = brackets.make_brackets(doc, part, ends)
+doc.recompute()
+check(sel.Count == 2 and all(pl.Base.z < 400 for pl in sel.PlacementList), f"rail ends: under the rail ({sel.Count})")
+upper_line = lines_object("Upper", [((0, 0, 450), (400, 0, 450))])
+doc.recompute()
+upper = feature.make_profile("20-6", 1, 1, 100, doc, edge=(upper_line, "Edge1"))
+doc.recompute()
+later = joints.create_joints(doc, goal + [upper], "Butt", "Vertical")
+doc.recompute()
+check(len(later) == 2 and sel.Count == 2 and all(400 < pl.Base.z < 450 for pl in sel.PlacementList)
+      and all(j in sel.FrameJoints for j in later) and upper in sel.Members and not sel.Proxy.mustExecute(sel),
+      f"a joint made later on the stubs: the brackets move up, into the enclosed side "
+      f"({sel.Count}, {[base(pl) for pl in sel.PlacementList]})")
 
 # ---- one bracket per slot: 40 x 40 profiles of the 20 series have two slots on each face ----------
 
@@ -507,6 +603,149 @@ if len(bodies) == 1:
     wrong, overlap, clash = fit_report(cube)
     check(len(LOCAL.Solids) == 1 and br.Count == 24 and not wrong and overlap < 1e-3 and clash < 1e-3,
           f"STEP file: 24 brackets on the cube, touching and not overlapping ({br.Count}, {wrong[:2]}, {overlap:.4f})")
+
+# ---- nested containers: the part is the bracket, not a library or a design around it ---------------
+
+doc = App.newDocument("nested")
+lines, cube, cube_joints = build_cube()
+
+
+def step_like(name):
+    """An App::Part holding one body, as a STEP import gives it."""
+    container = doc.addObject("App::Part", name)
+    solid = doc.addObject("Part::Feature", name + "Body")
+    solid.Shape = L.transformed(skew.toMatrix(), True)
+    container.addObject(solid)
+    return container, solid
+
+
+def calibrated_count(part, frame):
+    """(brackets placed, solids shown) of a Brackets object for ``part`` on the cube."""
+    made = brackets.make_brackets(doc, part, cube_joints, frame)
+    doc.recompute()
+    result = made.Count, len(Part.getShape(made).Solids)
+    doc.removeObject(made.Name)
+    return result
+
+
+library = doc.addObject("App::Part", "BracketLibrary")
+lib_step, lib_body = step_like("LibStep")
+bare = doc.addObject("Part::Feature", "Bracket30")
+bare.Shape = L.transformed(skew.toMatrix(), True)
+bare.Placement = App.Placement(V(200, 0, 0), App.Rotation())
+library.addObject(lib_step)
+library.addObject(bare)
+doc.recompute()
+s1, s2, _v = canonical_faces(lib_body.Shape, skew)
+part, frame, _notes = brackets.calibrate([(library, f"LibStep.LibStepBody.Face{s1}"),
+                                          (library, f"LibStep.LibStepBody.Face{s2}")])
+check(part == lib_step and same_placement(frame, skew), f"library of brackets: its bracket is the part ({part.Label})")
+check(calibrated_count(part, frame) == (24, 24), "library of brackets: one bracket in each corner, not the library")
+b1, b2, _v = canonical_faces(bare.Shape, bare.Placement.multiply(skew))
+part, frame, _notes = brackets.calibrate([(library, f"Bracket30.Face{b1}"), (library, f"Bracket30.Face{b2}")])
+check(part == bare and same_placement(frame, skew), f"library of brackets: a bare bracket in it is the part ({part.Label})")
+# A PartDesign body (here on a base feature): the body is the part, not the feature picked in it.
+pd_base = doc.addObject("Part::Feature", "PdBase")
+pd_base.Shape = L.transformed(skew.toMatrix(), True)
+pd_body = doc.addObject("PartDesign::Body", "PdBody")
+pd_body.BaseFeature = pd_base
+doc.recompute()
+p1, p2, _v = canonical_faces(pd_body.Shape, skew)
+part, frame, _notes = brackets.calibrate([(pd_body, f"{pd_body.Tip.Name}.Face{p1}"),
+                                          (pd_body, f"{pd_body.Tip.Name}.Face{p2}")])
+check(part == pd_body and same_placement(frame, skew), f"PartDesign body: the body is the part ({part.Label})")
+
+# The whole design in an App::Part: the frame's lines and profiles and the imported bracket.
+printer = doc.addObject("App::Part", "Printer")
+printer.addObject(lines)
+for p in cube:
+    printer.addObject(p)
+printer_step, printer_body = step_like("PrinterStep")
+printer.addObject(printer_step)
+doc.recompute()
+s1, s2, _v = canonical_faces(printer_body.Shape, skew)
+part, frame, _notes = brackets.calibrate([(printer, f"PrinterStep.PrinterStepBody.Face{s1}"),
+                                          (printer, f"PrinterStep.PrinterStepBody.Face{s2}")])
+check(part == printer_step and same_placement(frame, skew),
+      f"design in an App::Part: the bracket is the part, centred on its own width ({part.Label}, {frame})")
+check(calibrated_count(part, frame) == (24, 24), "design in an App::Part: one bracket in each corner, not the design")
+try:
+    brackets.calibrate([(printer, f"{cube[0].Name}.Face1"), (printer, f"{cube[0].Name}.Face3")])
+    check(False, "faces of a profile are refused as the bracket")
+except ValueError as e:
+    check("is or holds a profile" in str(e), f"faces of a profile are refused as the bracket ({e})")
+check(brackets.holds_frame(printer) and brackets.holds_frame(doc.getObject("Joints"))
+      and not brackets.holds_frame(printer_step) and not brackets.holds_frame(library),
+      "holds_frame: the design and the joints group hold the frame, the brackets and the library do not")
+
+# ---- a frame turned about Z, not lined up with world X and Y --------------------------------------
+
+
+def turned_cube(angle, spin, order=range(12)):
+    """(document, Brackets object, profiles) of the 400 mm cube turned by ``angle`` about Z.
+
+    The profiles are made in ``order``, which decides their names; the posts get ``spin``.
+    """
+    turned = App.newDocument("turned")
+    rot = App.Rotation(V(0, 0, 1), angle)
+    ring = [rot.multVec(V(x, y, 0)) for x, y in corners]
+    segs = []
+    for z in (0, S):
+        segs += [(a + V(0, 0, z), b + V(0, 0, z)) for a, b in zip(ring, ring[1:] + ring[:1])]
+    segs += [(c, c + V(0, 0, S)) for c in ring]
+    shape_lines = turned.addObject("Part::Feature", "CubeLines")
+    shape_lines.Shape = Part.makeCompound([Part.makeLine(a, b) for a, b in segs])
+    turned.recompute()
+    profs = [None] * 12
+    for i in order:
+        profs[i] = feature.make_profile("20-6", 1, 1, 100, turned, edge=(shape_lines, f"Edge{i + 1}"))
+    for p in profs[8:]:
+        p.Spin = spin
+    turned.recompute()
+    made = joints.create_joints(turned, profs, "Butt", "Vertical")
+    turned.recompute()
+    bracket_part = turned.addObject("Part::Feature", "Bracket")
+    bracket_part.Shape = L
+    placed_by = brackets.make_brackets(turned, bracket_part, made)
+    turned.recompute()
+    return turned, placed_by, profs
+
+
+def layout(obj):
+    """The brackets as sorted (corner, leg 1, leg 2) tuples."""
+    axes = [(pl.Base, pl.Rotation.multVec(V(1, 0, 0)), pl.Rotation.multVec(V(0, 1, 0)))
+            for pl in obj.PlacementList[:obj.Count]]
+    return sorted(tuple(tuple(round(c, 3) + 0.0 for c in (v.x, v.y, v.z)) for v in a) for a in axes)
+
+
+turned, br, turned_profiles = turned_cube(30, 0)
+post = turned_profiles[8]
+check(br.Count == 0 and any(n.startswith(f"{post.StartJoint.Label}: {post.Label} has no face square to") for n in br.Notes)
+      and not any("turned by" in n for n in br.Notes),
+      f"frame turned 30°, posts not spun: the note names the post, not its Spin ({br.Notes[:1]})")
+App.closeDocument(turned.Name)
+turned, br, turned_profiles = turned_cube(30, 30)
+LOCAL = L
+wrong, overlap, clash = fit_report(turned_profiles)
+check(br.Count == 24 and not wrong and overlap < 1e-3 and clash < 1e-3 and not br.Notes,
+      f"frame turned 30°, posts spun to match: 24 brackets that fit ({br.Count}, {wrong[:2]}, {br.Notes[:1]})")
+App.closeDocument(turned.Name)
+
+# Turned 45°, the two rails at a corner are at equal angles to X and Y. Which leg goes on which rail
+# must not depend on the order the profiles were made in, and must be the same at every corner.
+for angle in (45, 135):
+    turned, br, _p = turned_cube(angle, angle)
+    forward = layout(br)
+    App.closeDocument(turned.Name)
+    turned, br, _p = turned_cube(angle, angle, reversed(range(12)))
+    backward = layout(br)
+    App.closeDocument(turned.Name)
+    between_rails = [(x, y) for _c, x, y in forward if abs(x[2]) < 1e-6 and abs(y[2]) < 1e-6]
+    diagonal = V(1, 1, 0) * (1 / 2 ** 0.5)
+    check(len(forward) == 24 and forward == backward,
+          f"frame turned {angle}°: the same brackets whatever the order the profiles were made in")
+    check(len(between_rails) == 8 and all(abs(V(*x).dot(diagonal)) > 0.999 for x, _y in between_rails),
+          f"frame turned {angle}°: leg 1 on the rails along the same diagonal at every corner ({between_rails[:2]})")
 
 # ---- miter corners get no brackets yet, and say so -----------------------------------------
 
@@ -580,6 +819,18 @@ select([Picked(lines)], [lines])
 brackets_ui.CreateBrackets().Activated()
 check(len([o for o in doc.Objects if brackets.is_brackets(o)]) == count and "two faces" in messages[-1],
       "command: a line object is not taken as the bracket")
+frame_group = doc.addObject("App::DocumentObjectGroup", "Frame")
+for p in ring:
+    frame_group.addObject(p)
+profile_link = doc.addObject("App::Link", "ProfileLink")
+profile_link.LinkedObject = ring[0]
+doc.recompute()
+for picked in (frame_group, profile_link):
+    messages.clear()
+    select([Picked(picked)], [picked])
+    brackets_ui.CreateBrackets().Activated()
+    check(len([o for o in doc.Objects if brackets.is_brackets(o)]) == count and messages and "two faces" in messages[-1]
+          and not shown, f"command: {picked.TypeId} holding the frame's profiles is not taken as the bracket")
 select([Picked(part)], [part])
 brackets_ui.CreateBrackets().Activated()
 check(shown and shown[-1].LinkedObject == part and shown[-1].SourceFrame.isIdentity() and shown[-1].Count == 4,

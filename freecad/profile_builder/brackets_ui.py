@@ -46,9 +46,13 @@ def _picks():
 
 
 def _whole_part():
-    """A selected solid part that can serve as the bracket as it is (no faces picked), or None."""
+    """A selected solid part that can serve as the bracket as it is (no faces picked), or None.
+
+    Not a profile, joint, panel or Brackets object, nor a group, App::Part or
+    link holding one: the brackets would show the frame in every corner.
+    """
     for obj in Gui.Selection.getSelection():
-        if _is_ours(obj) or brackets.is_brackets(obj):
+        if brackets.holds_frame(obj):
             continue
         try:
             solid = bool(Part.getShape(obj).Solids)

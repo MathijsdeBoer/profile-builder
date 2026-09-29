@@ -106,8 +106,9 @@ tested on 1.1.
 5. Optionally select the four profiles around an opening and add a **Panel**.
 6. Optionally import your corner bracket (File > Import, e.g. a STEP file), pick its two faces that touch
    the profiles and click **Brackets**. `Rule` decides whether a T-junction gets brackets on both sides or
-   only on the side facing the middle of the frame. `SwapLegs` turns brackets with unequal legs, and
-   `SlotOffset` moves a bracket whose slot key is off-centre.
+   only on the sides facing into the frame, so not on a stub such as a post standing out above a rail.
+   `SwapLegs` turns brackets with unequal legs, and `SlotOffset` moves a bracket whose slot key is
+   off-centre.
 7. Set prices in **Pricing and stock** and create the **Cut list and costs**.
 
 Joints need straight members. Butt joints need them to be perpendicular, and miter joints work where

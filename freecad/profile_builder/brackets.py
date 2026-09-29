@@ -8,9 +8,9 @@ being copied, so it keeps its STEP colours and stays light, and no objects are
 created during recompute (``ShowElement`` stays off).
 
 Dependencies stay acyclic. The object links to its Joints and, through the
-hidden Members list, to the profiles at them, so it recomputes after them
-when a sketch, a profile (size, Spin) or a joint (swap, rule) changes.
-Profiles and joints never link to it.
+hidden Members and FrameJoints lists, to the profiles and the other joints of
+their frame, so it recomputes after them when a sketch, a profile (size, Spin)
+or a joint (swap, rule) changes. Profiles and joints never link to it.
 
 The bracket frame (``SourceFrame``, in the part's own coordinates, set by
 calibration): the origin lies on the line where the two contact faces meet,
@@ -27,7 +27,7 @@ from collections import OrderedDict
 import FreeCAD as App
 import Part
 
-from . import feature, joints
+from . import feature, joints, panels
 
 V = App.Vector
 
@@ -36,7 +36,7 @@ RULES = ("Inner faces", "All open faces")
 FIELDS = ("Rule", "AllJoints", "SwapLegs", "SlotOffset", "Item", "ArticleNumber")
 SLOT_TOLERANCE = 0.5  # mm: the slots of the two contact faces must line up this well
 MEET = 0.01  # mm: how far a butting end may stop short of the other profile's face, besides the joint's Gap
-OUTWARD = 1.0  # mm: a T-junction side faces out of the frame only beyond this
+OUTWARD = 1.0  # mm: at a T-junction, a joint or the frame's reach counts on a side only beyond this
 SQUARE = 0.02  # |cos| below which two contact faces count as square to each other (about 1 degree)
 SWAP = App.Rotation(V(1, 1, 0), 180)  # swaps the legs: X <-> Y, Z -> -Z
 FACE_AXES = (("Right", "x", 1), ("Left", "x", -1), ("Top", "y", 1), ("Bottom", "y", -1))
@@ -60,8 +60,34 @@ def _placement(origin, x, y):
 
 
 def _rank(u):
-    """Sort key for directions: X before Y before Z, as the joints break ties."""
-    return tuple(-round(abs(c), 6) for c in (u.x, u.y, u.z))
+    """Sort key for directions: X before Y before Z, as the joints break ties.
+
+    Lines at equal angles to the axes (rails along (1, 1, 0) and (1, -1, 0) in
+    a frame turned 45°) are then ordered by their signed direction, so the
+    order never depends on object names. The key is that of the line, not of
+    the way along it, so a rail ranks the same at both of its ends.
+    """
+    c = [round(v, 6) + 0.0 for v in (u.x, u.y, u.z)]  # + 0.0 turns -0.0 into 0.0
+    sign = next((1 if v > 0 else -1 for v in c if v), 1)
+    return tuple(-abs(v) for v in c) + tuple(-v * sign for v in c)
+
+
+def _square(obj):
+    """Whether a profile's Spin keeps its faces square to the axes it was drawn on."""
+    spin = obj.Spin.Value
+    return abs(spin - 90 * round(spin / 90)) < 1e-6
+
+
+def _no_face_note(missing, first, second):
+    """Why the corner of ``first`` and ``second`` gets no bracket: ``missing`` have no face lying flat in it."""
+    if len(missing) == 2:
+        return (f"{first.Label} and {second.Label} have no faces square to each other, so that corner gets no "
+                "bracket; set their Spin so their faces line up")
+    obj = missing[0]
+    other = second if obj == first else first
+    turned = "" if _square(obj) else f" is turned by its Spin ({obj.Spin.Value:g}°) and"
+    return (f"{obj.Label}{turned} has no face square to {other.Label}, so that corner gets no bracket; "
+            f"set its Spin so its faces line up with {other.Label}")
 
 
 # ---- where the brackets go ------------------------------------------------------
@@ -72,7 +98,8 @@ def face_slots(obj, frame, normal, across):
 
     They are returned as distances along ``across`` from the profile's axis
     line. An empty list when the face is closed, None when the profile has no
-    face that way (Spin turns it by other than a multiple of 90°).
+    face that way: its faces are not square to ``normal``, because of its Spin
+    or because the frame is not lined up with the axes it was drawn along.
     """
     for name, axis, sign in FACE_AXES:
         if (getattr(frame, axis) * sign).dot(normal) > joints.PARALLEL:
@@ -105,11 +132,9 @@ def _corner(vertex, first, first_frame, a, second, second_frame, n):
     across.normalize()
     mine = face_slots(first, first_frame, n, across)
     theirs = face_slots(second, second_frame, a, across)
-    turned = [p.Label for p, slots in ((first, mine), (second, theirs)) if slots is None]
-    if turned:
-        verb = "is" if len(turned) == 1 else "are"
-        return [], (f"{' and '.join(turned)} {verb} turned by Spin, so no face lies flat in the corner of "
-                    f"{first.Label} and {second.Label}; that corner gets no bracket")
+    missing = [p for p, slots in ((first, mine), (second, theirs)) if slots is None]
+    if missing:
+        return [], _no_face_note(missing, first, second)
     if not mine or not theirs:
         return [], None  # a closed face
     corner = vertex + a * second_frame.support(a) + n * first_frame.support(n)
@@ -126,13 +151,112 @@ def _reach(joint, obj, end):
     return -(offset + getattr(obj, f"Extend{end}").Value)
 
 
-def joint_spots(joint, rule, centre):
+class FrameInfo:
+    """The frame that a set of joints belongs to: every joint and profile connected to them.
+
+    The "Inner faces" rule looks at the whole frame, not only at the joints
+    that get brackets, so the brackets do not change when other joints are
+    picked.
+    """
+
+    def __init__(self, joint_list):
+        self.joints, self.profiles = frame_of(joint_list)
+        self._at = {}  # profile name -> joints where it meets another profile
+        self._points = {}
+        for joint in self.joints:
+            members = _members(joint, live=True)
+            if len(members) < 2:
+                continue  # a joint left with one profile connects nothing
+            for name in members:
+                self._at.setdefault(name, []).append(joint)
+        self._ends = {}
+        for obj in self.profiles:
+            try:
+                edge = feature.path_edge(obj)
+            except ValueError:
+                edge = None
+            if edge is not None:
+                self._ends[obj.Name] = (edge.Vertexes[0].Point, edge.Vertexes[-1].Point)
+
+    def point(self, joint):
+        if joint.Name not in self._points:
+            ends = joints._live(joints.ends_of(joint))
+            self._points[joint.Name] = joints._end_point(*ends[0]) if ends else None
+        return self._points[joint.Name]
+
+    def carries_on(self, joint, through, vertex, n):
+        """Whether ``through`` runs from ``vertex`` in direction ``n`` on to another joint of the frame."""
+        for other in self._at.get(through.Name, []):
+            p = None if other == joint else self.point(other)
+            if p is not None and (p - vertex).dot(n) > OUTWARD:
+                return True
+        return False
+
+    def reach(self, through, vertex, n):
+        """How far the frame, apart from ``through``, reaches beyond ``vertex`` in direction ``n``."""
+        return max([0.0] + [(p - vertex).dot(n) for name, ends in self._ends.items() if name != through.Name
+                            for p in ends])
+
+    def inner_sides(self, joint, through, vertex, sides):
+        """The sides of a T-junction that face into the frame.
+
+        A side where the profile running through carries on to another joint
+        faces into the frame. A side where it ends freely (a stub, such as a
+        post standing out above a rail) does not, unless it ends freely both
+        ways (posts standing on the floor): then the side where the rest of the
+        frame reaches further counts, or both when they reach equally far.
+        """
+        found = [n for n in sides if self.carries_on(joint, through, vertex, n)]
+        if found:
+            return found
+        reach = [self.reach(through, vertex, n) for n in sides]
+        return [n for n, r in zip(sides, reach) if r >= max(reach) - OUTWARD]
+
+
+def _members(joint, live=False):
+    """Names of the profiles at a joint (ending or passing through), each once.
+
+    With ``live``, only those whose path edge still exists.
+    """
+    ends = joints.ends_of(joint)
+    if live:
+        ends = joints._live(ends)
+    names = [o.Name for o, _e in ends] + [o.Name for o in joints.passing_of(joint)]
+    return list(dict.fromkeys(names))
+
+
+def frame_of(joint_list):
+    """([joints], [profiles]) connected to ``joint_list`` through joints, the given joints first."""
+    if not joint_list:
+        return [], []
+    doc = joint_list[0].Document
+    members = {joint.Name: _members(joint) for joint in all_joints(doc)}
+    at = {}  # profile name -> joints
+    for joint in all_joints(doc):
+        for name in members[joint.Name]:
+            at.setdefault(name, []).append(joint)
+    found_joints, found_profiles = OrderedDict(), OrderedDict()
+    queue = list(joint_list)
+    while queue:
+        joint = queue.pop(0)
+        if joint.Name in found_joints:
+            continue
+        found_joints[joint.Name] = joint
+        for name in members.get(joint.Name) or _members(joint):
+            if name not in found_profiles:
+                found_profiles[name] = doc.getObject(name)
+                queue += at.get(name, [])
+    return list(found_joints.values()), list(found_profiles.values())
+
+
+def joint_spots(joint, rule, context):
     """([(placement, profile on leg 1, profile on leg 2)], [notes]) for one joint.
 
     Brackets go into every square corner of a butt joint:
     - between a profile that ends at the joint and the one that runs through
       (on the side where that one continues; both sides at a T-junction, or
-      only the side facing ``centre`` with the "Inner faces" rule);
+      with the "Inner faces" rule only the sides facing into the frame,
+      see ``FrameInfo.inner_sides``; ``context`` is the FrameInfo);
     - between two profiles that end square to each other against the same
       profile, when both ends reach the other's face.
     """
@@ -165,14 +289,14 @@ def joint_spots(joint, rule, centre):
         tf = frames[through.Name]
         # Where the through profile continues: one way from a corner, both ways at a T-junction.
         sides = [tf.z, tf.z * -1] if through_end is None else [joints._away(tf, through_end)]
+        if rule == "Inner faces" and len(sides) > 1:
+            sides = context.inner_sides(joint, through, vertex, sides)
         for obj, end, a in butting:
             if abs(a.dot(tf.z)) > joints.PERPENDICULAR:
                 continue  # in line with it: no corner
             if _reach(joint, obj, end) > tf.support(a) + short:
                 continue
             for n in sides:
-                if rule == "Inner faces" and len(sides) > 1 and n.dot(centre - vertex) < -OUTWARD:
-                    continue  # the side of a T-junction that faces out of the frame
                 add(obj, frames[obj.Name], a, through, tf, n)
 
     # Two profiles ending square to each other: the corner between them.
@@ -194,31 +318,16 @@ def all_joints(doc):
     return [o for o in doc.Objects if joints.is_joint(o)]
 
 
-def members_of(joint_list):
-    """The profiles at the joints (ending or passing through), each once."""
-    found = OrderedDict()
-    for joint in joint_list:
-        for obj, _end in joints.ends_of(joint):
-            found.setdefault(obj.Name, obj)
-        for obj in joints.passing_of(joint):
-            found.setdefault(obj.Name, obj)
-    return list(found.values())
+def _names(objs):
+    return [o.Name for o in objs]
 
 
-def frame_centre(members):
-    """Middle of the frame: the midpoints of the members' path edges, weighted by length."""
-    total, acc = 0.0, V()
-    for obj in members:
-        try:
-            edge = feature.path_edge(obj)
-        except ValueError:
-            continue
-        if edge is None:
-            continue
-        mid = (edge.Vertexes[0].Point + edge.Vertexes[-1].Point) * 0.5
-        acc += mid * edge.Length
-        total += edge.Length
-    return acc * (1.0 / total) if total else acc
+def frame_links(joint_list, frame_joints=None, profiles=None):
+    """(FrameJoints, Members) for a Brackets object at ``joint_list``: the other joints and the profiles of its frame."""
+    if frame_joints is None:
+        frame_joints, profiles = frame_of(joint_list)
+    chosen = set(_names(joint_list))
+    return [j for j in frame_joints if j.Name not in chosen], profiles
 
 
 def bracket_transform(obj):
@@ -267,13 +376,16 @@ class Brackets:
                 obj.setEditorMode(name, mode)
 
         add("App::PropertyEnumeration", "Rule", "Brackets",
-            "Inner faces: at a T-junction, only on the side facing the middle of the frame. "
-            "All open faces: on both sides.", list(RULES))
+            "Inner faces: at a T-junction, only on the sides facing into the frame, where the profile "
+            "running through carries on to another joint; not on a free stub, such as a post standing out "
+            "above a rail. All open faces: on both sides.", list(RULES))
         add("App::PropertyBool", "AllJoints", "Brackets",
             "Place brackets at every joint in the document, also at joints made later", False)
         add("App::PropertyLinkList", "Joints", "Brackets", "Joints whose corners get brackets")
         add("App::PropertyLinkList", "Members", "Brackets",
-            "Profiles at the joints, so the brackets follow their changes", mode=2)
+            "Profiles of the frame that the joints are in, so the brackets follow their changes", mode=2)
+        add("App::PropertyLinkList", "FrameJoints", "Brackets",
+            "The frame's other joints, which decide which sides of a T-junction face into the frame", mode=2)
         add("App::PropertyPlacement", "SourceFrame", "Brackets",
             "Bracket frame in the part's own coordinates: origin where the two contact faces meet, "
             "in the middle of the width; +X along the leg on the profile that ends at the joint, +Y along "
@@ -316,27 +428,34 @@ class Brackets:
 
     def mustExecute(self, obj):
         # A joint made later (the Joints command after adding a profile)
-        # touches nothing this object depends on.
-        return bool(getattr(obj, "AllJoints", False)
-                    and [j.Name for j in all_joints(obj.Document)] != [j.Name for j in obj.Joints])
+        # touches nothing this object depends on, and neither does a profile
+        # joined to the frame later.
+        if "FrameJoints" not in obj.PropertiesList:
+            return False
+        if obj.AllJoints and _names(all_joints(obj.Document)) != _names(obj.Joints):
+            return True
+        others, profiles = frame_links([j for j in obj.Joints if joints.is_joint(j)])
+        return _names(others) != _names(obj.FrameJoints) or _names(profiles) != _names(obj.Members)
 
     def execute(self, obj):
+        if obj.AllJoints:
+            everything = all_joints(obj.Document)
+            if _names(obj.Joints) != _names(everything):
+                obj.Joints = everything
+        joint_list = [j for j in obj.Joints if joints.is_joint(j)]
+        context = FrameInfo(joint_list)
+        others, profiles = frame_links(joint_list, context.joints, context.profiles)
+        if _names(obj.FrameJoints) != _names(others):
+            obj.FrameJoints = others
+        if _names(obj.Members) != _names(profiles):
+            obj.Members = profiles
         if obj.LinkedObject is None:
             # FreeCAD puts the label in front of the message.
             raise ValueError("no bracket part; set LinkedObject to the bracket (for example an imported STEP body)")
-        if obj.AllJoints:
-            everything = all_joints(obj.Document)
-            if [j.Name for j in obj.Joints] != [j.Name for j in everything]:
-                obj.Joints = everything
-        joint_list = [j for j in obj.Joints if joints.is_joint(j)]
-        members = members_of(joint_list)
-        if [m.Name for m in obj.Members] != [m.Name for m in members]:
-            obj.Members = members
-        centre = frame_centre(members)
         found, notes = [], []
         for joint in joint_list:
             try:
-                spots, why = joint_spots(joint, obj.Rule, centre)
+                spots, why = joint_spots(joint, obj.Rule, context)
             except ValueError as e:
                 spots, why = [], [f"{joint.Label} gets no brackets: {e}"]
             found += [(joint, pl, a, b) for pl, a, b in spots]
@@ -393,7 +512,7 @@ def make_brackets(doc, part, joint_list, frame=None, **props):
     Brackets(obj)
     obj.LinkedObject = part
     obj.Joints = list(joint_list)
-    obj.Members = members_of(joint_list)
+    obj.FrameJoints, obj.Members = frame_links(list(joint_list))
     if frame is not None:
         obj.SourceFrame = frame
     for name, value in props.items():
@@ -473,16 +592,73 @@ def contact_frame(face_a, face_b, part=None, vertex=None):
     return result, notes
 
 
+def _frame_object(obj):
+    return feature.is_profile(obj) or joints.is_joint(obj) or panels.is_panel(obj) or is_brackets(obj)
+
+
+def holds_frame(obj, _seen=None):
+    """Whether ``obj`` is, links to, or holds (in a group or App::Part) a profile, joint, panel or Brackets object.
+
+    Such an object cannot be the bracket part: the brackets would show the
+    frame itself in every corner.
+    """
+    seen = set() if _seen is None else _seen
+    if obj is None or (obj.Document.Name, obj.Name) in seen:
+        return False
+    seen.add((obj.Document.Name, obj.Name))
+    if _frame_object(obj):
+        return True
+    linked = obj.getLinkedObject(True)
+    if linked is not None and linked != obj and holds_frame(linked, seen):
+        return True
+    return any(holds_frame(child, seen) for child in (getattr(obj, "Group", None) or []))
+
+
+def _assembly(obj):
+    """An App::Part, or a link to one: a container with its own placement."""
+    target = obj.getLinkedObject(True)
+    return target is not None and target.isDerivedFrom("App::Part")
+
+
+def _one_bracket(container):
+    """Whether an App::Part holds one bracket (a STEP import: a body, maybe with its screws).
+
+    Not when it holds profiles and the like, or other App::Parts: then it is
+    the frame, a whole design or a library of brackets.
+    """
+    target = container.getLinkedObject(True)
+    if holds_frame(target):
+        return False
+    return not any(_assembly(child) for child in target.Group if not child.isDerivedFrom("App::Origin"))
+
+
 def resolve(root, sub):
-    """(object, subname below it) for a pick, skipping plain groups (they have no placement)."""
-    obj = root
-    while obj.isDerivedFrom("App::DocumentObjectGroup") and "." in sub:
-        head, rest = sub.split(".", 1)
+    """(object, subname below it) of the bracket part that a pick is on.
+
+    ``root`` and ``sub`` are the top-level object and full subname of the
+    pick. The part is the object the picked face belongs to (a Part feature, a
+    PartDesign body, a link to one), or the App::Part directly around it when
+    that holds just this bracket, as a STEP import does. Plain groups (they have
+    no placement), a design or a library of brackets around it are passed. A
+    pick on a bracket placed by a Brackets object gives that object.
+    """
+    path = [(root, sub)]
+    obj, rest = root, sub
+    while "." in rest and not is_brackets(obj):
+        head, tail = rest.split(".", 1)
         child = obj.getSubObject(head + ".", 1)
         if child is None:
             break
-        obj, sub = child, rest
-    return obj, sub
+        obj, rest = child, tail
+        path.append((obj, rest))
+    for obj, rest in path:
+        if is_brackets(obj):
+            return obj, rest
+    k = next((i for i, (o, _r) in enumerate(path)
+              if not (o.isDerivedFrom("App::DocumentObjectGroup") or _assembly(o))), len(path) - 1)
+    if k > 0 and _assembly(path[k - 1][0]) and _one_bracket(path[k - 1][0]):
+        k -= 1
+    return path[k]
 
 
 def calibrate(picks):
@@ -501,6 +677,9 @@ def calibrate(picks):
     part = obj.LinkedObject if is_brackets(obj) else obj
     if part is None:
         raise ValueError(f"{obj.Label} has no bracket part")
+    if holds_frame(part):
+        raise ValueError(f"{part.Label} is or holds a profile, joint or panel of the frame, so it cannot be the "
+                         "bracket; pick the contact faces on the bracket part itself")
     faces, vertex = [], None
     for _obj, sub in resolved:
         element = sub.rsplit(".", 1)[-1]
