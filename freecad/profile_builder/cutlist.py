@@ -26,6 +26,7 @@ class Report:
     warnings: list = field(default_factory=list)
     errors: list = field(default_factory=list)  # objects left out because they have an error
     marks: dict = field(default_factory=dict)  # profile Name -> piece mark
+    unpriced: list = field(default_factory=list)  # products and sheets without a price, so not in the total
 
     @property
     def total(self):
@@ -224,7 +225,8 @@ def build_report(doc):
         (f"Tax {s['TaxPercent']:g}%", _money(tax)),
         ("Total, incomplete: see Attention" if report.errors else "Total", _money(subtotal + tax)),
     ]
-    for key in sorted(missing):
+    report.unpriced = sorted(missing)
+    for key in report.unpriced:
         report.warnings.append(f"No price for {key}")
     return report
 

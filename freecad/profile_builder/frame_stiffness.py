@@ -9,15 +9,19 @@ The model (see ``frame_model.py`` for the solver):
 - Nodes are the joints and the free profile ends. A member end reaches its
   node through a rigid link: the anchor offset (``Frame.center_offset``) and,
   for a trimmed end, the part of the joint inside the profile it butts against.
-- At every joint one member is rigidly connected (the one that runs through,
-  or the first of a miter); every other member end is connected through a
-  rotational spring. Joint stiffness is not known, so the frame is solved
+- At a butt joint the profile that runs through is rigidly connected and every
+  other member end is connected through a rotational spring. At a miter
+  neither profile runs through, so both ends get a spring (see
+  ``_joint_springs``). Joint stiffness is not known, so the frame is solved
   twice: with loose joints (k = factor · E·I/L of the butting profile, by
   default 0.5, the limit below which EN 1993-1-8 counts a joint as pinned) and
-  with stiff joints (by default rigid). Every result is that range.
-- The lowest nodes are the supports, pinned or fixed. Loads act on the highest
-  nodes: a sideways force in X and in Y (shared equally), and a twist about
-  the vertical axis through their centre.
+  with stiff joints (by default rigid). Every result is that range. Which end
+  gets which spring follows from the geometry and the joints' through rules,
+  never from object names.
+- The lowest nodes are the supports, pinned or fixed, each placed on the centre
+  line of the profile standing on it. Loads act on the highest nodes: a
+  sideways force in X and in Y (shared equally), and a twist about the
+  vertical axis through their centre.
 - Panels only add mass; their bracing effect is not modelled. T-nut slip, the
   floor, belts, drives and the toolhead are not modelled either.
 
@@ -201,7 +205,7 @@ class Segment:
     start: int  # node indices
     end: int
     offsets: tuple  # world vectors (tuples) from the nodes to the beam ends
-    spring: tuple  # (bool, bool): that end is joined through a joint spring
+    spring: tuple  # per end: None (rigidly joined) or the scale of its joint spring (see _joint_springs)
     joint: tuple  # (joint label or None, ...) at each end, for the strain-energy shares
     section: object  # frame_model.Section
     y_axis: tuple
@@ -239,7 +243,7 @@ class Frame:
         for p in self.nodes:
             m.node(p)
         for s in self.segments:
-            springs = tuple(_spring(s, factor) if flag else None for flag in s.spring)
+            springs = tuple(None if scale is None else _spring(s, factor, scale) for scale in s.spring)
             m.beam(s.start, s.end, s.section, s.y_axis, s.offsets, springs, tag=s)
         for node, kg in self.masses.items():
             m.add_mass(node, kg)
@@ -248,11 +252,12 @@ class Frame:
         return m
 
 
-def _spring(segment, factor):
+def _spring(segment, factor, scale=1.0):
+    """The joint spring at one end of a segment: scale · factor · (G·J, E·Iy, E·Iz) / L."""
     if factor is None:
         return None
-    s, L = segment.section, segment.span
-    return solver().Spring(factor * s.G * s.J / L, factor * s.E * s.iy / L, factor * s.E * s.iz / L)
+    s, L, k = segment.section, segment.span, scale * factor
+    return solver().Spring(k * s.G * s.J / L, k * s.E * s.iy / L, k * s.E * s.iz / L)
 
 
 def _vec(v):
@@ -263,27 +268,42 @@ def _usable(joint):
     return joint is not None and joint.isValid() and "Touched" not in joint.State
 
 
-def _rigid_end(joint, used):
-    """(profile name, end) connected rigidly at a joint, or None when all ends get springs.
+MITER_SPRING = 2.0  # each half of a miter joint; two equal halves in series make factor · E·I/L
 
-    A profile passing through a T-junction is continuous, so every end there
-    gets a spring. At a butt joint the profile that runs through is rigid, at
-    a miter the first profile; if that profile is not in the model, the first
-    one that is.
+
+def _joint_springs(joint, used):
+    """{(profile name, end): spring scale} for the ends at a joint; None is a rigid connection.
+
+    The spring at an end is scale · factor · E·I/L of that end's profile.
+
+    - T-junction: the passing profile is continuous, and every end butting
+      into it has a spring (scale 1).
+    - Butt joint: the profile that runs through (``joints.through_member``:
+      the joint's rule, the profiles' roles, ties broken by direction) is
+      rigid, every other end has a spring (scale 1). If that profile is not in
+      the model, all ends get springs.
+    - Miter: neither profile runs through, so the joint is split into two
+      springs in series, one on each profile, of 2 · factor · E·I/L each. For
+      two equal profiles the joint then has factor · E·I/L, like a butt joint.
+    - A joint with one end in the model (the other profile has an error) is a
+      free end.
+
+    Nothing here depends on object names, so recreating or renaming profiles
+    does not change the result.
     """
-    ends = [(o, e) for o, e in joints.ends_of(joint) if o.Name in used]
+    ends = [(o.Name, e) for o, e in joints.ends_of(joint) if o.Name in used]
     if any(o.Name in used for o in joints.passing_of(joint)):
-        return None
-    if not ends:
-        return None
-    if joint.Type == "Butt":
-        try:
-            through, end = joints.through_member(joint)
-        except ValueError:
-            through, end = None, None
-        if through is not None and end is not None and through.Name in used:
-            return through.Name, end
-    return ends[0][0].Name, ends[0][1]
+        return {end: 1.0 for end in ends}
+    if len(ends) < 2:
+        return {end: None for end in ends}
+    if joint.Type == "Miter":
+        return {end: MITER_SPRING for end in ends}
+    try:
+        through, end = joints.through_member(joint)
+    except ValueError:
+        through, end = None, None
+    rigid = (through.Name, end) if through is not None and end is not None else None
+    return {e: None if e == rigid else 1.0 for e in ends}
 
 
 def build_frame(doc, top_mass=0.0):
@@ -311,12 +331,12 @@ def build_frame(doc, top_mass=0.0):
                          "sketch and join them first.")
     names = {p.Name for p in used}
 
-    joint_nodes, rigid = {}, {}
+    joint_nodes, springs = {}, {}
 
     def joint_node(joint, point):
         if joint.Name not in joint_nodes:
             joint_nodes[joint.Name] = frame.add_node(point, joint.Label)
-            rigid[joint.Name] = _rigid_end(joint, names)
+            springs[joint.Name] = _joint_springs(joint, names)
         return joint_nodes[joint.Name]
 
     passing = {}  # profile name -> [joint]
@@ -338,10 +358,9 @@ def build_frame(doc, top_mass=0.0):
             joint = getattr(p, f"{end}Joint")
             if _usable(joint):
                 node = joint_node(joint, point)
-                spring = rigid[joint.Name] != (p.Name, end)
-                ends.append((node, spring, joint.Label))
+                ends.append((node, springs[joint.Name].get((p.Name, end)), joint.Label))
             else:
-                ends.append((frame.add_node(point, f"{p.Label} ({end.lower()})"), False, None))
+                ends.append((frame.add_node(point, f"{p.Label} ({end.lower()})"), None, None))
                 free_ends.append(ends[-1][0])
         profile_nodes[p.Name] = (ends[0][0], ends[1][0])
 
@@ -352,7 +371,7 @@ def build_frame(doc, top_mass=0.0):
                 continue
             t = (point - p0).dot(f.z)
             if 1e-6 < t < span - 1e-6:
-                stations.append((t, (joint_node(joint, point), False, joint.Label)))
+                stations.append((t, (joint_node(joint, point), None, joint.Label)))
         stations.append((span, ends[1]))
         stations.sort(key=lambda s: s[0])
 
@@ -380,7 +399,7 @@ def build_frame(doc, top_mass=0.0):
             frame.segments.append(Segment(
                 p.Name, p.Label, a[0], b[0],
                 (_vec(centre + f.z * cut0), _vec(centre - f.z * cut1)),
-                (a[1] if k == 0 else False, b[1] if k == last else False),
+                (a[1] if k == 0 else None, b[1] if k == last else None),
                 (a[2], b[2]), section, _vec(f.x), span))
             modelled += length
         # The rest of the piece (overhangs past the nodes) is lumped at its ends.
@@ -388,6 +407,7 @@ def build_frame(doc, top_mass=0.0):
         frame.add_mass(ends[0][0], rest)
         frame.add_mass(ends[1][0], rest)
     index = _keep_supported(frame)
+    _supports_on_axes(frame)
     frame.joint_count = sum(1 for n in joint_nodes.values() if n in index)
     # Ends standing on the floor are supports; others hang free.
     hanging = [n for n in free_ends if n in index and index[n] not in frame.base]
@@ -461,6 +481,47 @@ def _keep_supported(frame):
     return index
 
 
+def _supports_on_axes(frame):
+    """Put each support on the centre line of the profile standing on it.
+
+    Nodes are sketch vertices, and an anchored profile sits beside its sketch
+    line. A pin beside a post would act partly as a clamp, because the post
+    could only turn about it by stretching. So each support node moves to the
+    nearest point on the centre line of its most upright member (the average
+    point when several are equally upright), and the rigid links of all the
+    members at that node are shifted to match. For a post that point is
+    straight below its centre, at the node's height. Fixed supports give the
+    same result either way.
+    """
+    for n in frame.base:
+        node = V(*frame.nodes[n])
+        found = []  # (how upright, nearest point on the centre line)
+        for s in frame.segments:
+            for end, at, other in ((0, s.start, s.end), (1, s.end, s.start)):
+                if at != n:
+                    continue
+                a = node + V(*s.offsets[end])
+                d = V(*frame.nodes[other]) + V(*s.offsets[1 - end]) - a
+                if d.Length < 1e-9:
+                    continue
+                d.normalize()
+                found.append((round(abs(d.z), 6), a + d * (node - a).dot(d)))
+        if not found:
+            continue
+        most = max(upright for upright, _p in found)
+        points = [p for upright, p in found if upright == most]
+        target = V(sum(p.x for p in points) / len(points), sum(p.y for p in points) / len(points),
+                   sum(p.z for p in points) / len(points))
+        shift = target - node
+        if shift.Length < 1e-9:
+            continue
+        frame.nodes[n] = _vec(target)
+        for s in frame.segments:
+            if n in (s.start, s.end):
+                s.offsets = tuple(_vec(V(*o) - shift) if at == n else o
+                                  for o, at in zip(s.offsets, (s.start, s.end)))
+
+
 # ---- analysis ---------------------------------------------------------------------
 
 
@@ -492,13 +553,14 @@ def analyse(doc, values=None):
 
 
 def _cost(doc):
+    """The cut list's total (None when it could not be built), what has no price, and whether it has errors."""
     from . import cutlist
     try:
         report = cutlist.build_report(doc)
     except Exception:  # noqa: BLE001 - the cost is a side note, never a reason to fail
-        return {"cost": None, "currency": ""}
-    return {"cost": report.total if report.total else None, "currency": report.currency,
-            "cost_incomplete": bool(report.errors)}
+        return {"cost": None, "currency": "", "unpriced": [], "cost_errors": False}
+    return {"cost": report.total, "currency": report.currency, "unpriced": list(report.unpriced),
+            "cost_errors": bool(report.errors)}
 
 
 def _bound(frame, factor, supports):
@@ -716,6 +778,32 @@ def _signed(text, value):
     return ("+" if value > 0 else "") + text if value else text
 
 
+def cost_line(result, base):
+    """The cost change against the baseline, or None when neither has a price.
+
+    Products and sheets without a price are not in a total. When the variant
+    and the baseline lack different ones, the difference means nothing, so it
+    is not given; when they lack the same ones, it leaves those out and says so.
+    """
+    if not base or not (result.get("cost") or base.get("cost")):
+        return None
+    if result.get("cost") is None or base.get("cost") is None:
+        return "The cost change against the baseline is not known: the cut list could not be built."
+    now, was = set(result.get("unpriced") or ()), set(base.get("unpriced") or ())
+    if now != was:
+        return ("The cost change against the baseline is not known: no price for "
+                + ", ".join(sorted(now | was)) + ".")
+    from .pricing import format_money
+    delta = result["cost"] - base["cost"]
+    notes = []
+    if now:
+        notes.append("no price for " + ", ".join(sorted(now)) + ", so it is left out of both")
+    if result.get("cost_errors") or base.get("cost_errors"):
+        notes.append("the cut list has errors")
+    return (f"Cost {_signed(format_money(delta, result['currency']), delta)} against the baseline"
+            + (f" ({'; '.join(notes)})" if notes else "") + ".")
+
+
 def summary_lines(result, base=None):
     """Lines about the model itself: size, mass, cost, and the change against the baseline."""
     lines = [f"{result['members']} profile(s) and {result['joints']} joint(s). Supports: the {result['supports']} "
@@ -728,11 +816,9 @@ def summary_lines(result, base=None):
         delta = result["mass"] - base["mass"]
         mass += f" ({_signed(quantity(delta, 'mass'), delta)} against the baseline)"
     lines.append(mass + ".")
-    if base and result.get("cost") and base.get("cost"):
-        from .pricing import format_money
-        delta = result["cost"] - base["cost"]
-        lines.append(f"Cost {_signed(format_money(delta, result['currency']), delta)} against the baseline"
-                     + (" (the cut list has errors)" if result.get("cost_incomplete") else "") + ".")
+    cost = cost_line(result, base)
+    if cost:
+        lines.append(cost)
     if base and base.get("settings") != result.get("settings"):
         lines.append("The baseline was computed with other settings, so the comparison mixes them.")
     return lines
@@ -758,7 +844,8 @@ def assumption_lines(result):
     stiff_text = "rigid" if stiff <= 0 else f"k = {number(stiff, 2)} · E·I/L"
     return [ESTIMATE_NOTE,
             f"Loose joints: k = {number(loose, 2)} · E·I/L of the butting profile (below {number(PINNED_LIMIT, 1)}, "
-            f"EN 1993-1-8 counts a joint as pinned). Stiff joints: {stiff_text}.",
+            f"EN 1993-1-8 counts a joint as pinned). Stiff joints: {stiff_text}. At a miter each profile gets a "
+            f"spring of {number(MITER_SPRING, 1)}·k of its own, in series, so two equal profiles make k.",
             f"E = {number(E_ALUMINIUM / 1000, 3)} GPa; torsion constant taken as {TORSION_SHARE * 100:g} % of the "
             "polar moment, because the slotted section's own is not modelled."]
 

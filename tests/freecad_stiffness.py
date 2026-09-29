@@ -18,7 +18,7 @@ freecad.__path__.insert(0, os.path.join(ROOT, "freecad"))
 import FreeCAD as App  # noqa: E402
 import Part  # noqa: E402
 
-from freecad.profile_builder import cutlist, feature, frame_stiffness as fs, joints, panels  # noqa: E402
+from freecad.profile_builder import cutlist, feature, frame_stiffness as fs, joints, panels, pricing  # noqa: E402
 
 _loaded = os.path.normcase(os.path.realpath(fs.__file__))
 if not _loaded.startswith(os.path.normcase(os.path.realpath(ROOT))):
@@ -110,6 +110,143 @@ result = fs.analyse(doc, {"Supports": "Fixed"})
 check(arm.StartJoint is not None and any("1 profile end(s) above the supports" in n for n in result["notes"]),
       f"arm: its free end is mentioned ({result['notes']})")
 
+# ---- the same portal with miter joints --------------------------------------------------------
+# Neither profile runs through a miter, so each gets a spring of 2 · factor · E·I/L of
+# its own, in series. The result must not depend on the order the profiles were made
+# in (their object names), as a butt joint's through rule does not.
+
+
+def mitred_portal(order):
+    mdoc = App.newDocument("miter" + "".join(map(str, order)))
+    mlines = lines_object(mdoc, "Portal", [((0, 0, 0), (0, 0, H)), ((0, 0, H), (L, 0, H)), ((L, 0, H), (L, 0, 0))])
+    mdoc.recompute()
+    made = {i: feature.make_profile("20-6", 1, 2, 100, mdoc, edge=(mlines, f"Edge{i + 1}")) for i in order}
+    mdoc.recompute()
+    members = [made[i] for i in range(3)]
+    joints.create_joints(mdoc, members, "Miter", "Vertical")
+    mdoc.recompute()
+    return mdoc, members
+
+
+def values_of(result):
+    out = []
+    for bound in ("loose", "stiff"):
+        b = result["bounds"][bound]
+        out += [b["x"], b["y"], b["twist"]] + [m[0] for m in b["modes"]]
+    return out
+
+
+portal_settings = {"Supports": "Fixed", "LooseJointFactor": 0.5, "StiffJointFactor": 0.0, "TopMass": 0.0}
+mitred = []
+for order in ((0, 1, 2), (1, 0, 2), (2, 1, 0)):
+    mdoc, (mleft, mrail, mright) = mitred_portal(order)
+    check(all(o.isValid() for o in mdoc.Objects) and len([j for j in mdoc.Objects if joints.is_joint(j)]) == 2
+          and all(j.Type == "Miter" for j in mdoc.Objects if joints.is_joint(j)),
+          f"mitred portal {order}: two valid miter joints (rail {mrail.Name})")
+    mitred.append(fs.analyse(mdoc, portal_settings))
+first = values_of(mitred[0])
+check(all(v is not None for v in first) and all(
+    all(abs(a - b) <= 1e-9 * abs(b) for a, b in zip(values_of(other), first)) for other in mitred[1:]),
+    "mitred portal: the same results whatever order the profiles were made in "
+    f"(loose x {[round(r['bounds']['loose']['x'], 4) for r in mitred]})")
+# The miter meets at the vertex: no rigid end zones. The posts bend about their weak
+# axis, the rail stands on edge.
+am = E * mleft.Iy * 1e4 / H
+bm = E * mrail.Ix * 1e4 / L
+km = 1 / (1 / (2 * 0.5 * E * mleft.Iy * 1e4 / H) + 1 / (2 * 0.5 * E * mrail.Ix * 1e4 / L))
+
+
+def mitred_closed_form(k=None):
+    s = 6 * bm if k is None else 6 * bm * k / (k + 6 * bm)
+    return 24 * am * (am + s) / (H ** 2 * (4 * am + s))
+
+
+mloose, mstiff = mitred[0]["bounds"]["loose"], mitred[0]["bounds"]["stiff"]
+check(rel(mstiff["x"], mitred_closed_form()) < 5e-3,
+      f"mitred portal, rigid joints: {mstiff['x']:.3f} N/mm vs {mitred_closed_form():.3f}")
+check(rel(mloose["x"], mitred_closed_form(km)) < 5e-3,
+      f"mitred portal, loose joints: {mloose['x']:.3f} N/mm vs {mitred_closed_form(km):.3f}")
+check(mloose["flex"]["x"]["joints"] > 0.05, "mitred portal: the miter joints flex at the loose bound")
+
+# ---- anchor offsets and Spin: one post, anchored at a corner, standing fixed -------------------
+# A sideways force at the sketch line acts beside the post's centre line, so it also
+# twists the post: 1/k = H³/(3·E·I) + e²·H/(G·J), with e the offset across the force.
+
+adoc = App.newDocument("anchored")
+post_lines = lines_object(adoc, "Post", [((0, 0, 0), (0, 0, H))])
+adoc.recompute()
+post = feature.make_profile("20-6", 1, 2, 100, adoc, edge=(post_lines, "Edge1"))
+post.Anchor = "Bottom left"
+post.Spin = 90
+adoc.recompute()
+bb = post.Shape.BoundBox
+ex, ey = bb.Center.x, bb.Center.y  # the section centre, beside the sketch line
+deep_in_x = bb.XLength > bb.YLength
+pix, piy = post.Ix * 1e4, post.Iy * 1e4
+gj = E / (2 * (1 + fs.POISSON)) * fs.TORSION_SHARE * (pix + piy)
+i_x, i_y = (max(pix, piy), min(pix, piy)) if deep_in_x else (min(pix, piy), max(pix, piy))
+expect_x = 1 / (H ** 3 / (3 * E * i_x) + ey ** 2 * H / gj)
+expect_y = 1 / (H ** 3 / (3 * E * i_y) + ex ** 2 * H / gj)
+result = fs.analyse(adoc, {"Supports": "Fixed"})
+got = result["bounds"]["stiff"]
+check(post.isValid() and abs(ex) > 5 and abs(ey) > 5 and abs(abs(ex) - abs(ey)) > 5,
+      f"anchored post: the section centre sits beside the sketch line ({ex:.1f}, {ey:.1f})")
+check(rel(got["x"], expect_x) < 1e-3, f"anchored post, sideways X: {got['x']:.4f} N/mm vs {expect_x:.4f}")
+check(rel(got["y"], expect_y) < 1e-3, f"anchored post, sideways Y: {got['y']:.4f} N/mm vs {expect_y:.4f}")
+
+# ---- pinned supports sit under the posts, not at the sketch corners -----------------------------
+# A table: four posts anchored at a corner and turned to stand inside the sketch corners,
+# four top rails on the sketch lines, pinned feet. Sideways it is two pinned portals:
+# per portal 1/k = H³/(6·E·Ic) + H²/(2·kb) + 2·H³/(Lp²·E·A), with kb the rail's knee
+# stiffness (rigid end zones from the post centre lines to the rail ends, and its
+# joint springs) and Lp the distance between the post centre lines.
+
+tdoc = App.newDocument("table")
+T = 400.0
+top_corners = [(0, 0), (T, 0), (T, T), (0, T)]
+table_segments = [((*p, T), (*q, T)) for p, q in zip(top_corners, top_corners[1:] + top_corners[:1])]
+table_segments += [((*p, 0), (*p, T)) for p in top_corners]
+table_lines = lines_object(tdoc, "Table", table_segments)
+tdoc.recompute()
+table = [feature.make_profile("20-6", 1, 1, 100, tdoc, edge=(table_lines, f"Edge{i + 1}")) for i in range(8)]
+top_rails, legs = table[:4], table[4:]
+for leg, spin in zip(legs, (0, 90, 180, 270)):
+    leg.Anchor = "Bottom left"
+    leg.Spin = spin
+tdoc.recompute()
+joints.create_joints(tdoc, table, "Butt", "Vertical")
+tdoc.recompute()
+centres = [leg.Shape.BoundBox.Center for leg in legs]
+inside = all(abs(abs(c.x - x) - 10) < 1e-6 and abs(abs(c.y - y) - 10) < 1e-6 and 0 < c.x < T and 0 < c.y < T
+             for c, (x, y) in zip(centres, top_corners))
+check(all(o.isValid() for o in tdoc.Objects) and inside,
+      f"table: the posts stand inside the sketch corners ({[(round(c.x), round(c.y)) for c in centres]})")
+lp = centres[1].x - centres[0].x
+flexible = top_rails[0].Length.Value
+ei_rail, ei_leg = E * top_rails[0].Ix * 1e4, E * legs[0].Iy * 1e4
+ea_leg = E * legs[0].SectionArea.Value
+
+
+def pinned_table(k=None):
+    b = ei_rail / flexible
+    kb = 6 * b * (lp / flexible) ** 2 if k is None else 6 * b * k * (lp / flexible) ** 2 / (k + 6 * b)
+    return 2 / (T ** 3 / (6 * ei_leg) + T ** 2 / (2 * kb) + 2 * T ** 3 / (lp ** 2 * ea_leg))
+
+
+result = fs.analyse(tdoc, {"Supports": "Pinned", "LooseJointFactor": 0.5, "StiffJointFactor": 0.0, "TopMass": 0.0})
+tloose, tstiff = result["bounds"]["loose"], result["bounds"]["stiff"]
+check(not tloose["mechanism"] and not tstiff["mechanism"] and result["supports"] == 4,
+      f"table: pinned on its 4 feet, no mechanism ({tstiff['mechanism']})")
+check(rel(tstiff["x"], pinned_table()) < 5e-3, f"table, rigid joints: {tstiff['x']:.3f} N/mm vs {pinned_table():.3f}")
+k_rail = 0.5 * ei_rail / T
+check(rel(tloose["x"], pinned_table(k_rail)) < 5e-3,
+      f"table, loose joints: {tloose['x']:.3f} N/mm vs {pinned_table(k_rail):.3f}")
+check(rel(tstiff["x"], tstiff["y"]) < 1e-6 and rel(tloose["x"], tloose["y"]) < 1e-6, "table: as stiff in X as in Y")
+frame = fs.build_frame(tdoc)
+feet = [(round(frame.nodes[n][0], 6), round(frame.nodes[n][1], 6)) for n in frame.base]
+check(sorted(feet) == sorted((round(c.x, 6), round(c.y, 6)) for c in centres),
+      f"table: the supports are under the post centres ({sorted(feet)})")
+
 # ---- a 400 mm cube of 2020 --------------------------------------------------------------
 
 doc = App.newDocument("cube")
@@ -188,8 +325,11 @@ cutlist.recompute_if_needed(doc)
 bigger = fs.analyse(doc)
 rows = {r[0]: r for r in fs.report_rows(bigger, base)}
 ratio = rows["Sideways stiffness, X"][3]
-check(bigger["bounds"]["loose"]["x"] > loose["x"] and bigger["bounds"]["stiff"]["x"] > stiff["x"]
-      and ratio.endswith("×"), f"3030 posts are stiffer: {ratio}")
+gains = [bigger["bounds"][b]["x"] / result["bounds"][b]["x"] for b in ("loose", "stiff")]
+shown = [float(v.replace(",", ".")) for v in ratio.rstrip("×").split("–")]
+check(all(g > 1 for g in gains) and ratio == fs.ratio_text(*gains) and len(shown) == 2
+      and abs(min(shown) - min(gains)) < 0.051 and abs(max(shown) - max(gains)) < 0.051,
+      f"3030 posts are stiffer: {ratio} (now / baseline: {gains[0]:.3f} and {gains[1]:.3f})")
 check(bigger["mass"] > result["mass"] and any("against the baseline" in x for x in fs.summary_lines(bigger, base)),
       "variant: mass change against the baseline")
 
@@ -202,6 +342,55 @@ reloaded = fs.analyse(doc)
 check(rel(reloaded["bounds"]["stiff"]["x"], bigger["bounds"]["stiff"]["x"]) < 1e-9, "same result after reload")
 fs.clear_baseline(doc)
 check(fs.baseline(doc) is None and not fs.get_settings(doc).BaselineInfo, "baseline cleared")
+
+# ---- the cost change against the baseline, with and without prices -------------------------------
+
+cdoc = App.newDocument("cost")
+_l, cost_cube = framed(cdoc, "CostCube", segments)
+key_2020 = feature.product_key(cost_cube[0])
+prices = pricing.get_settings(cdoc, create=True)
+prices.PurchaseMode = "Cut to size"
+prices.ProfilePrices = {key_2020: "10"}
+prices.SheetPrices = {}
+prices.StockLengths = {}
+for _name in ("CutCost", "DeliveryFlat", "DeliveryPerKg", "FreeDeliveryAbove", "TaxPercent"):
+    setattr(prices, _name, 0.0)
+cdoc.recompute()
+cost_base = fs.analyse(cdoc)
+fs.set_baseline(cdoc, cost_base)
+for p in cost_cube[8:]:
+    p.Series = "30-8"
+cdoc.recompute()
+cutlist.recompute_if_needed(cdoc)
+key_3030 = feature.product_key(cost_cube[8])
+unpriced = fs.analyse(cdoc)
+summary = fs.summary_lines(unpriced, fs.baseline(cdoc))
+line = fs.cost_line(unpriced, fs.baseline(cdoc))
+check(cost_base["cost"] > 0 and not cost_base["unpriced"] and unpriced["unpriced"] == [key_3030]
+      and "not known" in line and key_3030 in line and line in summary
+      and not any(x.startswith("Cost") for x in summary),
+      f"cost: a variant with an unpriced product gets no cost change ({line})")
+prices.ProfilePrices = {key_2020: "10", key_3030: "20"}
+priced = fs.analyse(cdoc)
+line = fs.cost_line(priced, fs.baseline(cdoc))
+check(priced["cost"] > cost_base["cost"] and not priced["unpriced"] and line.startswith("Cost +")
+      and "not known" not in line and "(" not in line,
+      f"cost: once priced, the heavier posts cost more ({line})")
+App.closeDocument(cdoc.Name)
+
+
+def costed(cost, unpriced=(), errors=False):
+    return {"cost": cost, "currency": "", "unpriced": list(unpriced), "cost_errors": errors}
+
+
+same = fs.cost_line(costed(30.0, ["Acrylic 3 mm"]), costed(20.0, ["Acrylic 3 mm"]))
+check(same.startswith("Cost +") and "no price for Acrylic 3 mm" in same,
+      f"cost: the same unpriced sheet on both sides ({same})")
+gone = fs.cost_line(costed(20.0), costed(30.0, ["Acrylic 3 mm"]))
+check("not known" in gone and "Acrylic 3 mm" in gone, f"cost: an unpriced item only in the baseline ({gone})")
+check(fs.cost_line(costed(0.0, ["A"]), costed(0.0, ["A"])) is None, "cost: no line without any prices")
+errors = fs.cost_line(costed(30.0, errors=True), costed(20.0))
+check("the cut list has errors" in errors, f"cost: cut-list errors are mentioned ({errors})")
 
 # ---- things the model leaves out, and says so ---------------------------------------------------
 
@@ -288,13 +477,45 @@ try:
     panel.apply()
     check("c33" in panel.top_mass.styleSheet() and abs(s.TopMass.Value - 4.98951607) < 1e-6,
           "panel: an invalid mass is marked and not used")
+    # Editing a value starts the debounce timer; a button pressed before it runs must
+    # act on what the panel shows, not on the old settings.
+    panel.loose.setValue(1.5)
+    pending = panel._timer.isActive()
     panel.set_button.click()
+    stored = fs.baseline(gdoc)
+    check(pending and not panel._timer.isActive() and stored is not None
+          and stored["settings"]["LooseJointFactor"] == 1.5 and s.LooseJointFactor == 1.5,
+          f"panel: a pending change is applied before the baseline is stored "
+          f"({stored and stored['settings']['LooseJointFactor']})")
     check(fs.baseline(gdoc) is not None and panel.clear_button.isEnabled() and "Against baseline" in panel.view.text(),
           "panel: set as baseline")
+    rows = {r[0]: r for r in fs.report_rows(panel.result, stored)}
+    check(rows["Sideways stiffness, X"][3] == "1,0×" or rows["Sideways stiffness, X"][3] == "1.0×",
+          f"panel: right after storing, the baseline matches ({rows['Sideways stiffness, X'][3]})")
+    panel.stiff.setValue(5.0)
+    panel.print_report()
+    check(s.StiffJointFactor == 5.0 and panel.result["settings"]["StiffJointFactor"] == 5.0,
+          "panel: Print report applies a pending change first")
     panel.clear_button.click()
     check(fs.baseline(gdoc) is None and not panel.clear_button.isEnabled(), "panel: clear baseline")
     gdoc.abortTransaction()
     check(fs.get_settings(gdoc) is None, "panel: Cancel removes the settings object it made")
+    # Stored values the spin boxes round or clamp are kept unless the user changes them.
+    s = fs.get_settings(gdoc, create=True)
+    s.LooseJointFactor = 0.004
+    s.StiffJointFactor = 12.34
+    panel = frame_ui.FrameStiffnessPanel(gdoc)
+    shown = (panel.loose.value(), panel.stiff.value())
+    panel.supports.setCurrentIndex(panel.supports.findData("Fixed" if s.Supports != "Fixed" else "Pinned"))
+    panel.flush()
+    check(s.Supports == panel.supports.currentData() and s.LooseJointFactor == 0.004 and s.StiffJointFactor == 12.34,
+          f"panel: changing the supports keeps factors the spin boxes show as {shown} "
+          f"({s.LooseJointFactor}, {s.StiffJointFactor})")
+    panel.stiff.setValue(20.0)
+    panel.flush()
+    check(s.StiffJointFactor == 20.0 and s.LooseJointFactor == 0.004, "panel: a factor the user changes is written")
+    gdoc.abortTransaction()
+    gdoc.removeObject(s.Name)
     command = frame_ui.FrameStiffness().GetResources()
     check(os.path.exists(command["Pixmap"]), "command icon exists")
     empty = App.newDocument("empty")

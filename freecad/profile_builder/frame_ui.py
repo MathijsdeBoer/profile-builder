@@ -86,6 +86,11 @@ class FrameStiffnessPanel:
         self.top_mass = QtWidgets.QLineEdit(fs.mass_text(s.TopMass.Value))
         self.top_mass.setToolTip(s.getDocumentationOfProperty("TopMass") + "\nFor example 5 kg or 11 lb.")
         self._mass_shown = self.top_mass.text()
+        # The spin boxes round what they show (and clamp it to their range);
+        # only a value the user changed is written back, so a stored 12.34
+        # does not become 12.3 when another setting changes.
+        self._factors = {"LooseJointFactor": self.loose, "StiffJointFactor": self.stiff}
+        self._factors_shown = {name: w.value() for name, w in self._factors.items()}
         for w in (self.loose, self.stiff):
             w.setKeyboardTracking(False)
             w.valueChanged.connect(self.changed)
@@ -136,11 +141,13 @@ class FrameStiffnessPanel:
 
     def _write(self):
         s = self.settings
-        values = {"LooseJointFactor": self.loose.value(), "StiffJointFactor": self.stiff.value(),
-                  "Supports": self.supports.currentData()}
-        for name, value in values.items():
-            if getattr(s, name) != value:
+        for name, widget in self._factors.items():
+            value = widget.value()
+            if value != self._factors_shown[name]:
                 setattr(s, name, value)
+                self._factors_shown[name] = value
+        if s.Supports != self.supports.currentData():
+            s.Supports = self.supports.currentData()
         mass = fs.parse_mass(self._mass_shown)
         if mass is not None and abs(s.TopMass.Value - mass) > 1e-12:
             s.TopMass = mass
@@ -148,6 +155,12 @@ class FrameStiffnessPanel:
     def apply(self):
         self._write()
         self.run()
+
+    def flush(self):
+        """Apply a change still waiting for the debounce timer, so buttons act on what the panel shows."""
+        if self._timer.isActive():
+            self._timer.stop()
+            self.apply()
 
     # ---- results ------------------------------------------------------------------------
 
@@ -176,6 +189,7 @@ class FrameStiffnessPanel:
         self.clear_button.setEnabled(base is not None)
 
     def set_baseline(self):
+        self.flush()
         if self.result is None:
             return
         fs.set_baseline(self.doc, self.result)
@@ -187,6 +201,7 @@ class FrameStiffnessPanel:
         self._show()
 
     def print_report(self):
+        self.flush()
         if self.result is None:
             return
         text = fs.report_text(self.result, fs.baseline(self.doc))
@@ -199,9 +214,7 @@ class FrameStiffnessPanel:
         return QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
 
     def accept(self):
-        if self._timer.isActive():
-            self._timer.stop()
-            self.apply()
+        self.flush()
         self.doc.commitTransaction()
         if self.result is not None and json.dumps(self.result, sort_keys=True) != self._printed:
             self.print_report()
