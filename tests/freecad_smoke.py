@@ -387,7 +387,7 @@ check(all(p.Label2 == f"Mark {p.PieceMark}" for p in bring), "marks shown in the
 
 # CSV for Excel with a decimal comma.
 report = cutlist.build_report(doc)
-csv_path = os.path.join(tempfile.gettempdir(), "pb_cutlist_nl.csv")
+csv_path = os.path.join(tempfile.gettempdir(), "pb_cutlist_semicolon.csv")
 cutlist.write_csv(report, csv_path, delimiter=";", decimal=",")
 raw = open(csv_path, "rb").read()
 text = raw.decode("utf-8-sig")
@@ -697,6 +697,14 @@ sheet.Material = "Birch ply"
 doc.recompute()
 check(sheet.Expansion == 0 and panels.thermal_fit(sheet) == (0.0, None) and "not recognised" in panels.panel_info(sheet),
       "unknown material: no thermal check, and the dialog says why")
+
+# Currency and money format come from the system's region, not a fixed "€".
+check(pricing.get_settings(doc, create=True).Currency == pricing.default_currency(),
+      "default currency from the system region")
+money = pricing.format_money(1234.56, "$")
+check("$" in money and "234" in money and ("1,234.56" in money or "1.234,56" in money or "1 234,56" in money
+                                          or "1 234,56" in money or "1 234,56" in money),
+      f"money formatted by region ({money!r})")
 
 # [16] A shallow insert leaves room at the slot bottom.
 sheet.Material = "Acrylic"

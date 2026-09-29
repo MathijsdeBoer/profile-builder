@@ -160,7 +160,7 @@ class PricingTaskPanel:
         cutlist.recompute_if_needed(self.doc)
         report = cutlist.build_report(self.doc)
         c = report.currency
-        lines = [f"{label}: {c} {value:,.2f}" for label, value in report.summary]
+        lines = [f"{label}: {pricing.format_money(value, c)}" for label, value in report.summary]
         lines[-1] = f"<b>{lines[-1]}</b>"
         if report.stock:
             lines.insert(0, f"{len(report.stock)} stock bar(s)")

@@ -6,7 +6,7 @@ import FreeCAD as App
 import FreeCADGui as Gui
 import Part
 
-from . import cutlist, feature, joints, panels, profiles
+from . import cutlist, feature, joints, panels, pricing, profiles
 from .feature import ICON_DIR
 
 
@@ -173,7 +173,7 @@ class CutList:
         cutlist.apply_marks(doc, report)
         doc.commitTransaction()
         App.Console.PrintMessage(
-            f"Profile Builder: total {report.currency} {report.total:,.2f} -> '{sheet.Label}'\n")
+            f"Profile Builder: total {pricing.format_money(report.total, report.currency)} -> '{sheet.Label}'\n")
         for error in report.errors:
             App.Console.PrintError(f"  Not in the cut list: {error}\n")
         for warning in report.warnings:
@@ -197,9 +197,11 @@ class ExportCutList:
         from PySide import QtCore, QtWidgets
         doc = App.ActiveDocument
         start = os.path.splitext(doc.FileName)[0] + "_cutlist.csv" if doc.FileName else "cutlist.csv"
-        comma = "CSV, comma separated (*.csv)"
-        semicolon = "CSV for Excel with decimal comma, e.g. Dutch or German (*.csv)"
-        # Offer the variant that matches this computer's number format first.
+        comma = "CSV, comma separated, decimal point: 1234.5 (*.csv)"
+        semicolon = "CSV, semicolon separated, decimal comma: 1234,5 (*.csv)"
+        # Many regions write numbers with a decimal comma, and their spreadsheet
+        # programs expect semicolons. Offer the variant that matches this
+        # computer's number format first.
         decimal_comma = QtCore.QLocale().decimalPoint() == ","
         filters = [semicolon, comma] if decimal_comma else [comma, semicolon]
         path, chosen = QtWidgets.QFileDialog.getSaveFileName(

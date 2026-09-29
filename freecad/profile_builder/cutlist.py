@@ -251,9 +251,10 @@ def _blocks(report):
 def write_csv(report, path, delimiter=",", decimal="."):
     """Write the report as CSV.
 
-    For Excel in locales that use a decimal comma (Dutch, German, ...) pass
+    For spreadsheet programs in regions that use a decimal comma, pass
     ``delimiter=";"`` and ``decimal=","``. The file starts with a UTF-8 byte
-    order mark, which Excel needs to show °, ² and € correctly.
+    order mark, which Excel needs to show characters such as °, ² and currency
+    symbols correctly.
     """
     def cell(value):
         if isinstance(value, float) and decimal != ".":

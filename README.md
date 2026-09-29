@@ -52,7 +52,9 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
   - Each group gets a mark (A1, A2, ...), which also appears in the stock plan and in the tree's
     description column.
   - Objects with errors are listed at the top, and the total is marked incomplete.
-  - The CSV export offers a variant for Excel with a decimal comma (Dutch, German, ...).
+  - The CSV export writes either decimal points with commas between fields, or decimal commas with
+    semicolons, as used in many regions. It offers your system's format first.
+  - Amounts use your system's currency symbol and number format; the currency can be set per document.
 
 ## Install
 
