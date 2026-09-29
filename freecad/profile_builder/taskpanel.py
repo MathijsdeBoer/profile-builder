@@ -84,6 +84,10 @@ class ProfileTaskPanel:
         self.edge_mode = bool(self.objects[0].PathEdge)
         self._build()
         self._load(self.objects[0])
+        # Profiles from older documents have no section properties yet.
+        for obj in self.objects:
+            if feature.needs_refresh(obj):
+                obj.touch()
         self.doc.recompute()
         self._update_info()
 
@@ -321,31 +325,33 @@ class ProfileTaskPanel:
     def apply(self):
         key = self.series.currentData()
         for obj in self.objects:
-            if obj.Series != key:
-                obj.Series = key
-            if obj.Weight != self.weight.currentData():
-                obj.Weight = self.weight.currentData()
-            obj.Columns = self.cols.value()
-            obj.Rows = self.rows.value()
-            obj.SlotStyle = self.style.currentData()
+            # Only write what changed: every write touches the object, and with
+            # many profiles on edges each touch means another recompute.
+            _set(obj, "Series", key)
+            _set(obj, "Weight", self.weight.currentData())
+            _set(obj, "Columns", self.cols.value())
+            _set(obj, "Rows", self.rows.value())
+            _set(obj, "SlotStyle", self.style.currentData())
             for face, box in self.closed.items():
-                setattr(obj, f"Closed{face}", box.isChecked())
-            obj.CenterBore = self.bore.isChecked()
-            obj.CornerHoles = self.corner.isChecked()
-            obj.Anchor = self.anchor.currentData()
-            obj.MiterStart = self.miter_start.value()
-            obj.MiterEnd = self.miter_end.value()
-            obj.MiterAcross = self.miter_across.currentData()
+                _set(obj, f"Closed{face}", box.isChecked())
+            _set(obj, "CenterBore", self.bore.isChecked())
+            _set(obj, "CornerHoles", self.corner.isChecked())
+            _set(obj, "Anchor", self.anchor.currentData())
+            if not obj.StartJoint:
+                _set(obj, "MiterStart", self.miter_start.value())
+            if not obj.EndJoint:
+                _set(obj, "MiterEnd", self.miter_end.value())
+            _set(obj, "MiterAcross", self.miter_across.currentData())
             if self.edge_mode:
-                obj.ExtendStart = self.extend_start.value()
-                obj.ExtendEnd = self.extend_end.value()
-                obj.Spin = self.spin.value()
+                _set(obj, "ExtendStart", self.extend_start.value())
+                _set(obj, "ExtendEnd", self.extend_end.value())
+                _set(obj, "Spin", self.spin.value())
             else:
-                obj.Length = self.length.value()
+                _set(obj, "Length", self.length.value())
             for name, box in self.dims.items():
-                setattr(obj, name, box.value())
+                _set(obj, name, box.value())
             if feature.is_auto_label(obj.Label):
-                obj.Label = feature.auto_label(obj)
+                _set(obj, "Label", feature.auto_label(obj))
         self.doc.recompute()
         self._update_info()
 
@@ -359,7 +365,9 @@ class ProfileTaskPanel:
         total = sum(o.Mass for o in self.objects)
         text = (f"<b>{obj.Designation}</b><br>"
                 f"Section {obj.SectionArea.Value:.1f} mm², {obj.MassPerMeter:.3f} kg/m<br>"
-                f"Saw length {obj.OverallLength.Value:.1f} mm")
+                f"Saw length {obj.OverallLength.Value:.1f} mm<br>"
+                f"Ix {obj.Ix:.2f} / Iy {obj.Iy:.2f} cm⁴, Wx {obj.Wx:.2f} / Wy {obj.Wy:.2f} cm³ "
+                f"<span style='color:gray'>(modelled section)</span>")
         if series.tappable(obj.Weight):
             text += f"<br>Centre bore for {series.tap} tapping"
         elif series.tap:
@@ -405,6 +413,16 @@ class ProfileTaskPanel:
             gdoc.resetEdit()  # closes the dialog through unsetEdit
         else:
             Gui.Control.closeDialog()
+
+
+def _set(obj, name, value):
+    current = getattr(obj, name)
+    if hasattr(current, "Value"):
+        if abs(current.Value - value) < 1e-9:
+            return
+    elif current == value:
+        return
+    setattr(obj, name, value)
 
 
 def _saved_weight(p):

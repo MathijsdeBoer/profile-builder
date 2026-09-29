@@ -9,6 +9,7 @@ and extruded along +Z. Everything here works on plain dimension dicts (see
     Part.show(geometry.make_profile(dims, cols=1, rows=2, length=500))
 """
 
+import functools
 import math
 
 import FreeCAD as App
@@ -133,7 +134,29 @@ def make_section(d, cols=1, rows=1, style="T-slot", closed=(), center_bore=True,
     ``closed`` is an iterable of face names from ``profiles.FACES`` that get
     no slots. ``corner_holes`` defaults to "on when the series has them".
     ``anchor`` (see ``profiles.ANCHORS``) is the point placed on the origin.
+
+    Sections are cached: a frame usually has only a few distinct sections,
+    and building one (booleans and offsets) costs far more than extruding it.
+    Every call returns a fresh copy, so callers may modify the face.
     """
+    key = (tuple(sorted((k, round(float(v), 6)) for k, v in d.items())), int(cols), int(rows), style,
+           tuple(sorted(closed)), bool(center_bore), None if corner_holes is None else bool(corner_holes),
+           anchor)
+    return _cached_section(key).copy()
+
+
+@functools.lru_cache(maxsize=64)
+def _cached_section(key):
+    # Failures raise, and lru_cache does not cache exceptions.
+    dims, cols, rows, style, closed, center_bore, corner_holes, anchor = key
+    return _build_section(dict(dims), cols, rows, style, closed, center_bore, corner_holes, anchor)
+
+
+def clear_section_cache():
+    _cached_section.cache_clear()
+
+
+def _build_section(d, cols, rows, style, closed, center_bore, corner_holes, anchor):
     problems = profiles.validate(d, style)
     if problems:
         raise ValueError("Invalid profile dimensions: " + "; ".join(problems))

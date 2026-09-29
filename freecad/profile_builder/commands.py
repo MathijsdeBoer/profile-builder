@@ -20,27 +20,51 @@ def size_icon(key, cols, rows):
 
 
 def selected_edges():
-    """Straight edges in the selection as (object, "EdgeN") tuples.
+    """Straight edges in the selection: ([(object, "EdgeN")], number skipped).
 
     Selected sub-edges are used as is; a whole selected object (e.g. a sketch)
-    contributes all of its straight edges.
+    contributes all of its straight edges. Edges that already carry a profile
+    are skipped, so inserting twice does not silently double the cut list.
     """
-    result = []
+    doc = App.ActiveDocument
+    occupied = set()
+    for p in (doc.Objects if doc else []):
+        if feature.is_profile(p) and p.PathEdge:
+            try:
+                occupied.add((p.PathEdge[0].Name, _edge_key(feature.path_edge(p))))
+            except ValueError:
+                pass  # a broken path edge occupies nothing
+
+    result, skipped = [], 0
+
+    def take(obj, sub, edge):
+        nonlocal skipped
+        if not isinstance(getattr(edge, "Curve", None), Part.Line):
+            return
+        if (obj.Name, _edge_key(edge)) in occupied:
+            skipped += 1
+        else:
+            result.append((obj, sub))
+
     for sel in Gui.Selection.getSelectionEx():
         obj = sel.Object
-        if feature.is_profile(obj):
+        if feature.is_profile(obj) or joints.is_joint(obj) or panels.is_panel(obj):
             continue
         subs = [s for s in sel.SubElementNames if s.startswith("Edge")]
         if subs:
             for sub in subs:
-                edge = obj.getSubObject(sub)
-                if isinstance(getattr(edge, "Curve", None), Part.Line):
-                    result.append((obj, sub))
+                take(obj, sub, obj.getSubObject(sub))
         elif hasattr(obj, "Shape") and not sel.SubElementNames:
             for i, edge in enumerate(obj.Shape.Edges, start=1):
-                if isinstance(edge.Curve, Part.Line):
-                    result.append((obj, f"Edge{i}"))
-    return result
+                take(obj, f"Edge{i}", edge)
+    if skipped:
+        App.Console.PrintWarning(f"Profile Builder: skipped {skipped} edge(s) that already have a profile\n")
+    return result, skipped
+
+
+def _edge_key(edge):
+    """The two end points of an edge, rounded, in either order."""
+    return frozenset(tuple(round(c, 6) for c in v.Point) for v in edge.Vertexes)
 
 
 class CreateProfile:
@@ -57,7 +81,10 @@ class CreateProfile:
 
     def Activated(self):
         from .taskpanel import ProfileTaskPanel
-        Gui.Control.showDialog(ProfileTaskPanel(edges=selected_edges()))
+        edges, skipped = selected_edges()
+        if not edges and skipped:
+            return  # every selected edge already has a profile (a warning was printed)
+        Gui.Control.showDialog(ProfileTaskPanel(edges=edges))
 
 
 class QuickProfile:
@@ -84,7 +111,9 @@ class QuickProfile:
         from .taskpanel import PARAMS
         p = App.ParamGet(PARAMS)
         doc = App.ActiveDocument or App.newDocument()
-        edges = selected_edges()
+        edges, skipped = selected_edges()
+        if not edges and skipped:
+            return  # every selected edge already has a profile (a warning was printed)
         doc.openTransaction(f"Insert {self.series.designation(self.cols, self.rows)}")
         created = []
         for edge in edges or [None]:
@@ -137,12 +166,16 @@ class CutList:
 
     def Activated(self):
         doc = App.ActiveDocument
+        cutlist.recompute_if_needed(doc)
         report = cutlist.build_report(doc)
         doc.openTransaction("Cut list")
         sheet = cutlist.write_spreadsheet(doc, report)
+        cutlist.apply_marks(doc, report)
         doc.commitTransaction()
         App.Console.PrintMessage(
             f"Profile Builder: total {report.currency} {report.total:,.2f} -> '{sheet.Label}'\n")
+        for error in report.errors:
+            App.Console.PrintError(f"  Not in the cut list: {error}\n")
         for warning in report.warnings:
             App.Console.PrintMessage(f"  {warning}\n")
         Gui.Selection.clearSelection()
@@ -161,13 +194,31 @@ class ExportCutList:
         return App.ActiveDocument is not None
 
     def Activated(self):
-        from PySide import QtWidgets
+        from PySide import QtCore, QtWidgets
         doc = App.ActiveDocument
         start = os.path.splitext(doc.FileName)[0] + "_cutlist.csv" if doc.FileName else "cutlist.csv"
-        path, _filter = QtWidgets.QFileDialog.getSaveFileName(
-            Gui.getMainWindow(), "Export cut list", start, "CSV files (*.csv)")
+        comma = "CSV, comma separated (*.csv)"
+        semicolon = "CSV for Excel with decimal comma, e.g. Dutch or German (*.csv)"
+        # Offer the variant that matches this computer's number format first.
+        decimal_comma = QtCore.QLocale().decimalPoint() == ","
+        filters = [semicolon, comma] if decimal_comma else [comma, semicolon]
+        path, chosen = QtWidgets.QFileDialog.getSaveFileName(
+            Gui.getMainWindow(), "Export cut list", start, ";;".join(filters))
         if path:
-            cutlist.write_csv(cutlist.build_report(doc), path)
+            cutlist.recompute_if_needed(doc)
+            report = cutlist.build_report(doc)
+            # Keep the marks on the model (and an existing Cut list sheet) the
+            # same as in the file, so labels and printout agree.
+            doc.openTransaction("Export cut list")
+            cutlist.apply_marks(doc, report)
+            sheet = doc.getObject("CutList")
+            if sheet is not None and sheet.TypeId == "Spreadsheet::Sheet":
+                cutlist.write_spreadsheet(doc, report)
+            doc.commitTransaction()
+            if chosen == semicolon:
+                cutlist.write_csv(report, path, delimiter=";", decimal=",")
+            else:
+                cutlist.write_csv(report, path)
             App.Console.PrintMessage(f"Profile Builder: cut list written to {path}\n")
 
 
@@ -211,9 +262,12 @@ class CreateJoints:
             return
         _label, joint_type, rule = JOINT_STYLES[labels.index(choice)]
         doc.openTransaction("Create joints")
-        created = joints.create_joints(doc, targets, joint_type, rule)
+        warnings = []
+        created = joints.create_joints(doc, targets, joint_type, rule, warnings=warnings)
         doc.recompute()
         doc.commitTransaction()
+        for warning in warnings:
+            App.Console.PrintWarning(f"Profile Builder: {warning}\n")
         App.Console.PrintMessage(f"Profile Builder: {len(created)} joint(s) created. Select joints to "
                                  "change their type or which profile runs through.\n")
 

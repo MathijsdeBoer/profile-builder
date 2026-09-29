@@ -24,6 +24,7 @@ V = App.Vector
 TYPES = ("Butt", "Miter")
 THROUGH_RULES = ("Vertical", "Longest", "Horizontal", "Along X", "Along Y", "Manual")
 TOLERANCE = 1e-3  # mm, for matching vertices
+NEAR_MISS = 2.0  # mm: vertices closer than this but not matching are probably a drawing error
 PARALLEL = 0.999  # |cos| above which two members count as collinear
 PERPENDICULAR = 0.02  # |cos| below which two members count as perpendicular
 
@@ -47,7 +48,23 @@ def ends_of(joint):
 def passing_of(joint):
     doc = joint.Document
     objs = [doc.getObject(name) for name in joint.PassingMembers]
-    return [o for o in objs if o is not None and feature.is_profile(o)]
+    return [o for o in objs if o is not None and feature.is_profile(o) and _has_edge(o)]
+
+
+def _has_edge(obj):
+    try:
+        return feature.path_edge(obj) is not None
+    except ValueError:
+        return False
+
+
+def _live(ends):
+    """The ends whose path edge still exists.
+
+    A profile whose sketch line was deleted reports its own error; the others
+    in the joint are computed as if it were not there, instead of failing too.
+    """
+    return [(o, e) for o, e in ends if _has_edge(o)]
 
 
 def _end_point(obj, end):
@@ -77,12 +94,15 @@ def through_member(joint):
     passing = passing_of(joint)
     if passing:
         return passing[0], None
-    ends = ends_of(joint)
+    ends = _live(ends_of(joint))
     if not ends:
         return None, None
     if joint.ThroughRule == "Manual":
+        # The choice is kept by object name, which survives renaming; older
+        # documents only have the label until the joint recomputes once.
+        name = getattr(joint, "ThroughName", "")
         for obj, end in ends:
-            if obj.Label == joint.Through:
+            if (obj.Name == name) if name else (obj.Label == joint.Through):
                 return obj, end
 
     # Per-profile roles come next: a profile marked "Runs through" wins at
@@ -121,19 +141,31 @@ def _role(obj):
 
 def swap(joint):
     """Let the next profile of a butt joint run through (sets the rule to Manual)."""
-    ends = ends_of(joint)
+    ends = _live(ends_of(joint))
     if len(ends) < 2 or passing_of(joint):
         return False
     current, _end = through_member(joint)
-    labels = [o.Label for o, _e in ends]
-    nxt = labels[(labels.index(current.Label) + 1) % len(labels)]
+    names = [o.Name for o, _e in ends]
+    nxt = ends[(names.index(current.Name) + 1) % len(ends)][0]
     joint.Proxy._updating = True
     try:
         joint.ThroughRule = "Manual"
-        joint.Through = nxt
+        joint.ThroughName = nxt.Name
+        # A profile renamed since the joint last recomputed is not in the list yet.
+        labels = list(dict.fromkeys(o.Label for o, _e in ends_of(joint)))
+        if list(joint.getEnumerationsOfProperty("Through") or []) != labels:
+            joint.Through = labels
+        joint.Through = nxt.Label
     finally:
         joint.Proxy._updating = False
     return True
+
+
+def _member_by_label(joint, label):
+    for obj in [o for o, _e in ends_of(joint)] + passing_of(joint):
+        if obj.Label == label:
+            return obj
+    return None
 
 
 def set_runs_through(profiles):
@@ -169,7 +201,7 @@ def adjustment(joint, obj, end):
     away = _away(frame, end)
 
     if joint.Type == "Miter":
-        ends = ends_of(joint)
+        ends = _live(ends_of(joint))
         if len(ends) != 2 or passing_of(joint):
             raise ValueError(f"{joint.Label}: a miter joint needs exactly two profiles ending in it")
         other, other_end = ends[0] if ends[1] == (obj, end) else ends[1]
@@ -204,7 +236,7 @@ def adjustment(joint, obj, end):
         if not joint.ExtendThrough:
             return 0.0, 0.0, "X"
         reach = 0.0
-        for other, other_end in ends_of(joint):
+        for other, other_end in _live(ends_of(joint)):
             if (other, other_end) == (obj, end):
                 continue
             other_frame = feature.member_frame(other)
@@ -247,6 +279,8 @@ class Joint:
         add("App::PropertyEnumeration", "ThroughRule", "Joint",
             "Which profile runs through a butt joint", list(THROUGH_RULES))
         add("App::PropertyEnumeration", "Through", "Joint", "Profile that runs through (sets the rule to Manual)")
+        add("App::PropertyString", "ThroughName", "Joint",
+            "Internal name of the profile chosen in Through, so renaming profiles keeps the choice", mode=2)
         add("App::PropertyBool", "ExtendThrough", "Joint",
             "Extend the through profile so its end is flush with the others", True)
         add("App::PropertyLength", "Gap", "Joint", "Clearance between butting profiles", 0.0)
@@ -265,27 +299,52 @@ class Joint:
                 rule = obj.ThroughRule
                 obj.ThroughRule = list(THROUGH_RULES)
                 obj.ThroughRule = rule
+            # Documents from before ThroughName kept the manual choice by label.
+            # Resolve it now, while the labels still match, so a rename made
+            # before the next recompute cannot lose it.
+            if obj.ThroughRule == "Manual" and not obj.ThroughName:
+                member = _member_by_label(obj, obj.Through)
+                if member is not None:
+                    obj.ThroughName = member.Name
         finally:
             self._updating = False
 
     def onChanged(self, obj, prop):
-        if "Restore" in obj.State or getattr(self, "_updating", False):
+        # Undo and Cancel write the old Through back; that is not a new choice.
+        if feature.replaying(obj) or getattr(self, "_updating", False):
             return
-        if prop == "Through" and "ThroughRule" in obj.PropertiesList:
+        if prop == "Through" and "ThroughName" in obj.PropertiesList:
             obj.ThroughRule = "Manual"
+            member = _member_by_label(obj, obj.Through)
+            if member is not None:
+                obj.ThroughName = member.Name
 
     def execute(self, obj):
         ends = ends_of(obj)
         passing = passing_of(obj)
+        live = _live(ends)
         self._updating = True
         try:
-            labels = [o.Label for o, _e in ends] + [o.Label for o in passing]
-            labels = list(dict.fromkeys(labels))
-            current = obj.Through
+            members_objs = [o for o, _e in ends] + passing
+            labels = list(dict.fromkeys(o.Label for o in members_objs))
+            if obj.ThroughName:
+                if obj.Document.getObject(obj.ThroughName) not in members_objs:
+                    # The chosen profile was deleted, or this joint is a copy that
+                    # names another joint's profile: go back to automatic.
+                    obj.ThroughName = ""
+                    if obj.ThroughRule == "Manual":
+                        obj.ThroughRule = "Longest"
+            elif obj.ThroughRule == "Manual":
+                chosen = _member_by_label(obj, obj.Through)  # documents from before ThroughName
+                if chosen is not None:
+                    obj.ThroughName = chosen.Name
             if list(obj.getEnumerationsOfProperty("Through") or []) != labels:
                 obj.Through = labels or [""]
-                if current in labels:
-                    obj.Through = current
+            # Always show the profile that really runs through.
+            if obj.Type == "Butt" and live:
+                through, _end = through_member(obj)
+                if through is not None and through.Label in labels and obj.Through != through.Label:
+                    obj.Through = through.Label
             members = [f"{o.Label} ({e.lower()})" for o, e in ends]
             members += [f"{o.Label} (passes through)" for o in passing]
             if list(obj.Members) != members:
@@ -293,12 +352,12 @@ class Joint:
         finally:
             self._updating = False
 
-        if not ends:
+        if not live:
             obj.Shape = Part.Shape()
             return
-        if obj.Type == "Miter" and (len(ends) != 2 or passing):
+        if obj.Type == "Miter" and (len(live) != 2 or passing):
             raise ValueError(f"{obj.Label}: a miter joint needs exactly two profiles ending in it")
-        obj.Shape = Part.Vertex(_end_point(*ends[0]))
+        obj.Shape = Part.Vertex(_end_point(*live[0]))
 
     def dumps(self):
         return None
@@ -386,16 +445,29 @@ def _joint_group(doc):
     return group
 
 
-def create_joints(doc, profiles, joint_type="Butt", rule="Vertical", tolerance=TOLERANCE):
+def create_joints(doc, profiles, joint_type="Butt", rule="Vertical", tolerance=TOLERANCE, warnings=None):
     """Create joints wherever profile path edges meet. Returns the new joints.
 
     Ends that already have a joint are left alone; free ends landing on an
     existing joint are added to it. A free end landing in the middle of another
     profile makes a T-junction with that profile running through. Miter joints
     are only used where exactly two profiles meet; other vertices get butt joints.
+
+    Ends that nearly meet another end or edge (within ``NEAR_MISS``) but not
+    within ``tolerance`` get no joint, and a message is added to ``warnings``.
     """
-    candidates = [p for p in profiles if feature.is_profile(p) and p.PathEdge]
-    edges = {p.Name: feature.path_edge(p) for p in candidates}
+    candidates, edges = [], {}
+    for p in profiles:
+        if not (feature.is_profile(p) and p.PathEdge):
+            continue
+        try:
+            edges[p.Name] = feature.path_edge(p)
+        except ValueError as e:
+            # One deleted sketch line must not stop the rest of the frame.
+            if warnings is not None:
+                warnings.append(f"skipped: {e}")
+            continue
+        candidates.append(p)
 
     clusters = []  # [point, existing joint or None, [(profile, end)]]
     for joint in doc.Objects:
@@ -412,6 +484,9 @@ def create_joints(doc, profiles, joint_type="Butt", rule="Vertical", tolerance=T
                     break
             else:
                 clusters.append([point, None, [(p, end)]])
+
+    if warnings is not None:
+        warnings.extend(_near_misses(clusters, candidates, edges, tolerance))
 
     created = []
     for point, joint, members in clusters:
@@ -434,6 +509,12 @@ def create_joints(doc, profiles, joint_type="Butt", rule="Vertical", tolerance=T
             joint.PassingMembers = [q.Name for q in passing]
             _joint_group(doc).addObject(joint)
             created.append(joint)
+        if joint.Type == "Miter" and len(ends_of(joint)) + len(members) > 2:
+            # More than two profiles cannot share a miter.
+            joint.Type = "Butt"
+            if warnings is not None:
+                warnings.append(f"{joint.Label} now joins {len(ends_of(joint)) + len(members)} profiles, "
+                                "so it was changed from a miter to a butt joint")
         for p, end in members:
             setattr(p, f"{end}Joint", joint)
         sources = list(joint.Sources)
@@ -443,3 +524,36 @@ def create_joints(doc, profiles, joint_type="Butt", rule="Vertical", tolerance=T
                 sources.append(link)
         joint.Sources = sources
     return created
+
+
+def _near_misses(clusters, candidates, edges, tolerance):
+    """Messages for profile ends that almost, but not quite, meet something."""
+    messages = []
+    ends = [(point, members) for point, _joint, members in clusters if members]
+    for i, (p, members) in enumerate(ends):
+        for q, others in ends[i + 1:]:
+            gap = (p - q).Length
+            if tolerance <= gap < NEAR_MISS:
+                messages.append(f"{members[0][0].Label} and {others[0][0].Label} end {gap:.2f} mm apart, "
+                                "so they get no joint; snap the sketch vertices together")
+    # New ends that just miss a joint made in an earlier run.
+    existing = [(point, joint) for point, joint, members in clusters if joint is not None and not members]
+    for p, members in ends:
+        for q, joint in existing:
+            gap = (p - q).Length
+            if tolerance <= gap < NEAR_MISS:
+                messages.append(f"{members[0][0].Label} ends {gap:.2f} mm from {joint.Label}, so it is not "
+                                "added to that joint; snap the sketch vertex onto the corner")
+    for p, members in ends:
+        if len(members) != 1:
+            continue
+        vertex = Part.Vertex(p)
+        for q in candidates:
+            if q == members[0][0]:
+                continue
+            gap = edges[q.Name].distToShape(vertex)[0]
+            near_end = min((v.Point - p).Length for v in edges[q.Name].Vertexes) < NEAR_MISS
+            if tolerance <= gap < NEAR_MISS and not near_end:
+                messages.append(f"{members[0][0].Label} ends {gap:.2f} mm from {q.Label}, "
+                                "so it gets no T-joint; snap the sketch vertex onto the line")
+    return messages

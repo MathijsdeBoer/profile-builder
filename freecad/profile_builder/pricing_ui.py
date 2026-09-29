@@ -157,6 +157,7 @@ class PricingTaskPanel:
         self._update_estimate()
 
     def _update_estimate(self):
+        cutlist.recompute_if_needed(self.doc)
         report = cutlist.build_report(self.doc)
         c = report.currency
         lines = [f"{label}: {c} {value:,.2f}" for label, value in report.summary]
@@ -164,6 +165,9 @@ class PricingTaskPanel:
         if report.stock:
             lines.insert(0, f"{len(report.stock)} stock bar(s)")
         lines += [f"<span style='color:#b60'>{w}</span>" for w in report.warnings if w.startswith("No price")]
+        if report.errors:
+            lines.insert(0, f"<span style='color:#c33'><b>{len(report.errors)} object(s) with errors are not "
+                            f"counted:</b><br>" + "<br>".join(report.errors) + "</span>")
         self.estimate.setText("<br>".join(lines))
 
     def save_defaults(self):

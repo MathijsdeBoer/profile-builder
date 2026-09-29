@@ -40,6 +40,7 @@ class PropertyTaskPanel:
         self.info.setWordWrap(True)
         layout.addRow(self.info)
         self.form = form
+        self._shown = {name: self._read(w) for name, w in self.widgets.items()}
         self._update_info()
 
     def _widget(self, name):
@@ -72,20 +73,52 @@ class PropertyTaskPanel:
     def changed(self, *_args):
         self._timer.start()
 
-    def apply(self):
+    @staticmethod
+    def _read(w):
+        if isinstance(w, QtWidgets.QComboBox):
+            return w.currentText()
+        if isinstance(w, QtWidgets.QCheckBox):
+            return w.isChecked()
+        if isinstance(w, QtWidgets.QLineEdit):
+            return w.text()
+        return w.value()
+
+    def _value(self, name):
+        current = getattr(self.obj, name)
+        return current.Value if hasattr(current, "Value") else current
+
+    def _reload(self):
+        """Show the object's values again, including ones its onChanged derived."""
         for name, w in self.widgets.items():
-            if isinstance(w, QtWidgets.QComboBox):
-                value = w.currentText()
-            elif isinstance(w, QtWidgets.QCheckBox):
-                value = w.isChecked()
-            elif isinstance(w, QtWidgets.QLineEdit):
-                value = w.text()
-            else:
-                value = w.value()
-            current = getattr(self.obj, name)
-            if (current.Value if hasattr(current, "Value") else current) != value:
+            value = self._value(name)
+            w.blockSignals(True)
+            try:
+                if isinstance(w, QtWidgets.QComboBox):
+                    items = list(self.obj.getEnumerationsOfProperty(name) or [])
+                    if [w.itemText(i) for i in range(w.count())] != items:
+                        w.clear()
+                        w.addItems(items)
+                    w.setCurrentText(value)
+                elif isinstance(w, QtWidgets.QCheckBox):
+                    w.setChecked(value)
+                elif isinstance(w, QtWidgets.QLineEdit):
+                    w.setText(value)
+                else:
+                    w.setValue(value)
+            finally:
+                w.blockSignals(False)
+            self._shown[name] = self._read(w)
+
+    def apply(self):
+        # Write only the fields the user changed since the last reload. Comparing
+        # with the object instead would write stale values over ones that
+        # onChanged just derived (Material sets a panel's Density and Expansion).
+        for name, w in self.widgets.items():
+            value = self._read(w)
+            if value != self._shown.get(name) and value != self._value(name):
                 setattr(self.obj, name, value)
         self.doc.recompute()
+        self._reload()
         self._update_info()
 
     def _update_info(self):

@@ -36,13 +36,23 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
 - **Joints**: where profiles on sketch edges meet, they butt against each other (one runs through, the
   others stop at its face) or miter. T-junctions are detected too. Joints follow sketch changes and
   profile size changes, so the cut list tells you "8 × 380, 4 × 470" without any manual trimming.
+- **Section properties**: Ix, Iy, Wx and Wy of the modelled section, including closed faces and the
+  weight class. For example, a 2040 standing on edge is 3.5× stiffer than lying flat.
 - **Panels**: sheets that sit in the slots between profiles or cover the frame face (enclosure sides). You
-  get the sheet size, area and mass, and a check that the sheet fits the slot.
+  get the sheet size, area and mass, and a check that the sheet fits the slot. Density and thermal
+  expansion follow the material (acrylic, polycarbonate, Dibond, glass, ...). A thermal check warns when a
+  sheet in the slots would get too tight between its lowest and highest temperature, for example in a
+  heated printer enclosure.
 - **Pricing**: price per metre per product and per m² per sheet, cutting cost, delivery (flat, per kg, free
   above an order value) and tax. The prices are stored in the document and can be saved as your defaults.
 - **Stock bars**: pieces are packed into stock bars (with saw kerf and end trim) and you get a cutting plan
   per bar, or you can price the order as cut to size.
 - **Cut list and costs**: a spreadsheet or CSV with the pieces, stock plan, sheets and cost summary.
+  - Identical pieces are grouped even when they were drawn in opposite directions.
+  - Each group gets a mark (A1, A2, ...), which also appears in the stock plan and in the tree's
+    description column.
+  - Objects with errors are listed at the top, and the total is marked incomplete.
+  - The CSV export offers a variant for Excel with a decimal comma (Dutch, German, ...).
 
 ## Install
 
@@ -106,10 +116,12 @@ not a manufacturer's drawing, and real extrusions differ by a few tenths of a mi
 vendor. The weight classes use generic rules (wall thickness scaled to the grid size) rather than a
 specific vendor's profile, so their masses are estimates.
 Mass is estimated from the modelled section, which is simplified, so it comes out a little heavy on the
-large 40/45 sizes. Check the vendor datasheet before relying on it.
+large 40/45 sizes. The same applies to the section properties (Ix, Iy, W). Check the vendor datasheet
+before relying on them. The expansion coefficients are typical values for each material, so the thermal
+fit check is a rule of thumb.
 
 ## Development
 
-- `python -m pytest tests`: catalog tests, no FreeCAD needed
+- `python -m pytest tests`: catalog, stock and piece-identity tests, no FreeCAD needed
 - `freecadcmd tests/freecad_smoke.py`: geometry, edges, miters, save/reload and cut list (run it from the repo root)
 - `freecadcmd tools/make_icons.py`: regenerates the toolbar icons from the real geometry

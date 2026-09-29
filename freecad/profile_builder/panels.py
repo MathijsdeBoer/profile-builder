@@ -2,6 +2,7 @@
 
 import math
 import os
+import re
 
 import FreeCAD as App
 import Part
@@ -12,6 +13,61 @@ V = App.Vector
 
 MOUNTS = ("In slot", "On face")
 SIDES = ("Front", "Back")
+
+# Sheet materials: density in g/cm^3 and thermal expansion in 1e-6/K (µm per m
+# per kelvin). Typical values; grades differ, so the fit check is a rule of thumb.
+MATERIALS = {
+    "Acrylic": (1.19, 70.0),
+    "Polycarbonate": (1.20, 65.0),
+    "PETG": (1.27, 60.0),
+    "Aluminium composite": (1.27, 24.0),
+    "Aluminium": (2.70, 23.1),
+    "Glass": (2.50, 9.0),
+    "Steel": (7.85, 12.0),
+    "MDF": (0.75, 10.0),
+    "Plywood": (0.60, 7.0),
+}
+# Trade and short names. They are more specific than the generic names above:
+# "Aluminium Dibond" is a composite sheet, not solid aluminium.
+MATERIAL_ALIASES = {
+    "pmma": "Acrylic", "plexiglas": "Acrylic", "plexiglass": "Acrylic", "perspex": "Acrylic",
+    "acrylglas": "Acrylic", "pc": "Polycarbonate", "lexan": "Polycarbonate", "makrolon": "Polycarbonate",
+    "dibond": "Aluminium composite", "acm": "Aluminium composite", "alucobond": "Aluminium composite",
+    "plexi": "Acrylic",
+}
+# Phrases that contain another material's name but mean one material.
+MATERIAL_PHRASES = {"acrylic glass": "Acrylic", "organic glass": "Acrylic", "plexi glass": "Acrylic",
+                    "acryl glass": "Acrylic"}
+ALUMINIUM_EXPANSION = 23.1  # the frame
+
+
+def material_data(name):
+    """(density, expansion) for a material name, or None when it is not known.
+
+    Case-insensitive, on whole words anywhere in the name ("Clear acrylic
+    3 mm", "Glass, tempered"). Trade names and phrases win ("Aluminium
+    Dibond", "acrylic glass"); a longer name beats a shorter one inside it
+    ("Aluminium composite" before "Aluminium"). When the name mentions two
+    different materials ("glass-clear PETG", "steel grey acrylic") it is
+    ambiguous and None is returned, so nothing is guessed. The US spelling
+    "aluminum" is accepted.
+    """
+    words = re.findall(r"[a-z0-9]+", name.lower().replace("aluminum", "aluminium"))
+    text = " ".join(words)
+    for phrase in sorted(MATERIAL_PHRASES, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(phrase)}\b", text):
+            return MATERIALS[MATERIAL_PHRASES[phrase]]
+    for word in words:
+        if word in MATERIAL_ALIASES:
+            return MATERIALS[MATERIAL_ALIASES[word]]
+    found = []  # (start, end, material)
+    for key in MATERIALS:
+        for m in re.finditer(rf"\b{re.escape(key.lower())}\b", text):
+            found.append((m.start(), m.end(), key))
+    # Drop matches inside a longer one ("aluminium" inside "aluminium composite").
+    found = [f for f in found if not any(o[0] <= f[0] and f[1] <= o[1] and o != f for o in found)]
+    materials = {key for _start, _end, key in found}
+    return MATERIALS[materials.pop()] if len(materials) == 1 else None
 
 
 def is_panel(obj):
@@ -147,6 +203,7 @@ class Panel:
 
     def __init__(self, obj):
         obj.Proxy = self
+        self._restoring = False
         self.add_properties(obj)
 
     def add_properties(self, obj):
@@ -170,14 +227,41 @@ class Panel:
         add("App::PropertyEnumeration", "Side", "Panel", "Which side of the frame (on face)", list(SIDES))
         add("App::PropertyDistance", "PlaneOffset", "Panel", "Shift of the sheet along its normal", 0.0)
         add("App::PropertyString", "Material", "Panel", "Sheet material, used for pricing", "Acrylic")
-        add("App::PropertyFloat", "Density", "Panel", "Material density in g/cm^3", 1.19)
+        add("App::PropertyFloat", "Density", "Panel",
+            "Material density in g/cm^3 (set from the material when it is a known one)", 1.19)
+        # An unknown material gets 0, meaning "not known": the thermal check then
+        # asks for a value instead of assuming acrylic.
+        known = material_data(obj.Material) or (None, 0.0)
+        add("App::PropertyFloat", "Expansion", "Fit",
+            "Thermal expansion of the sheet in 1e-6/K, set from the material when it is a known one "
+            "(0: not known, no thermal check)", known[1])
+        add("App::PropertyFloat", "AssemblyTemperature", "Fit", "Temperature when the panel is fitted, in °C", 20.0)
+        add("App::PropertyFloat", "MinTemperature", "Fit", "Lowest temperature in use, in °C", 0.0)
+        add("App::PropertyFloat", "MaxTemperature", "Fit",
+            "Highest temperature in use, in °C (a heated printer enclosure runs at 40-60 °C)", 50.0)
         add("App::PropertyLength", "Width", "Info", "Sheet size along the first profile", mode=1)
         add("App::PropertyLength", "Height", "Info", "Sheet size across the first profile", mode=1)
         add("App::PropertyArea", "Area", "Info", "Area of the panel outline", mode=1)
         add("App::PropertyFloat", "Mass", "Info", "Mass in kg", mode=1)
 
     def onDocumentRestored(self, obj):
-        self.add_properties(obj)
+        self._restoring = True
+        try:
+            self.add_properties(obj)
+        finally:
+            self._restoring = False
+
+    def onChanged(self, obj, prop):
+        if feature.replaying(obj) or getattr(self, "_restoring", False):
+            return
+        if prop == "Material" and "Expansion" in obj.PropertiesList:
+            known = material_data(obj.Material)
+            if known is not None:
+                obj.Density, obj.Expansion = known
+            else:
+                # Keep the density (a guess is worse than the last value) but do
+                # not keep checking the fit with another material's expansion.
+                obj.Expansion = 0.0
 
     def execute(self, obj):
         points, n, width, height, area = panel_outline(obj)
@@ -240,13 +324,54 @@ class ViewProviderPanel:
     __setstate__ = loads
 
 
+def thermal_fit(obj):
+    """(clearance needed per side in mm, warning or None) for a sheet in the slots.
+
+    The sheet and the aluminium frame expand differently. Between the
+    assembly temperature and the extremes in use, the difference must fit in
+    the room left at the bottom of the slots, half on each side. That room is
+    the clearance, plus whatever InsertDepth leaves unused of the slot depth.
+    With an unknown expansion (0) there is nothing to check.
+    """
+    if obj.Mount != "In slot" or obj.Expansion <= 0:
+        return 0.0, None
+    size = max(obj.Width.Value, obj.Height.Value)
+    diff = (obj.Expansion - ALUMINIUM_EXPANSION) * 1e-6
+    growth = max(diff * (t - obj.AssemblyTemperature) * size
+                 for t in (obj.MinTemperature, obj.MaxTemperature))
+    need = max(0.0, growth / 2)
+    room = slot_room(obj)
+    if need <= room:
+        return need, None
+    return need, (f"{obj.Label}: the sheet grows {growth:.2f} mm more than the frame over the temperature range; "
+                  f"it needs {need:.2f} mm room per side at the slot bottom but has {room:.2f} mm")
+
+
+def slot_room(obj):
+    """Smallest gap between the sheet edge and the slot bottom, over the profiles around it."""
+    rooms = [m.SlotDepth.Value - (obj.InsertDepth.Value or m.SlotDepth.Value) + obj.Clearance.Value
+             for m in obj.Profiles if feature.is_profile(m)]
+    return min(rooms) if rooms else obj.Clearance.Value
+
+
 def panel_info(obj):
-    return (f"<b>Sheet {obj.Width.Value:.1f} × {obj.Height.Value:.1f} mm</b><br>"
+    need, warning = thermal_fit(obj)
+    text = (f"<b>Sheet {obj.Width.Value:.1f} × {obj.Height.Value:.1f} mm</b><br>"
             f"{sheet_key(obj)}, {obj.Area.Value / 1e6:.3f} m², {obj.Mass:.2f} kg")
+    if obj.Mount != "In slot":
+        pass
+    elif obj.Expansion <= 0:
+        text += "<br><span style='color:gray'>Material not recognised: set Expansion to check the thermal fit</span>"
+    elif warning:
+        text += (f"<br><span style='color:#c60'>Too tight: needs {need:.2f} mm per side at the slot bottom "
+                 f"(has {slot_room(obj):.2f}) between {obj.MinTemperature:g} and {obj.MaxTemperature:g} °C</span>")
+    else:
+        text += f"<br>Thermal fit OK ({need:.2f} of {slot_room(obj):.2f} mm room per side)"
+    return text
 
 
 PANEL_FIELDS = ("Mount", "Thickness", "Material", "Clearance", "InsertDepth", "Margin", "Side",
-                "PlaneOffset", "Density")
+                "PlaneOffset", "Density", "Expansion", "MaxTemperature")
 
 
 def make_panel(doc, profiles, **props):
