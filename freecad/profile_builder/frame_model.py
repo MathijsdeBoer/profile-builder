@@ -307,7 +307,11 @@ class Model:
             K, M, hinges = self.assemble()
             free = self.free_dofs(K.shape[0])
             self._check_mechanism(K, free, hinges)
-            self._prepared = (K, M, hinges, free, linalg.cho_factor(K[np.ix_(free, free)]))
+            try:
+                factor = linalg.cho_factor(K[np.ix_(free, free)])
+            except linalg.LinAlgError as e:  # nearly singular, just above the mechanism threshold
+                raise MechanismError("the frame is nearly a mechanism") from e
+            self._prepared = (K, M, hinges, free, factor)
         return self._prepared[:4]
 
     # ---- analyses -------------------------------------------------------------------

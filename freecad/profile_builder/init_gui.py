@@ -18,6 +18,7 @@ class ProfileBuilderWorkbench(Gui.Workbench):
         tools = ["ProfileBuilder_Joints", "ProfileBuilder_RunThrough", "ProfileBuilder_SwapJoint",
                  "ProfileBuilder_Panel", "Separator", "ProfileBuilder_Pricing",
                  "ProfileBuilder_CutList", "ProfileBuilder_ExportCutList"]
+        tools += ["Separator", "ProfileBuilder_FrameStiffness"]
         self.appendToolbar("Profile Builder", main + [group for _key, group, _names in groups])
         self.appendToolbar("Profile Builder tools", tools)
         self.appendMenu("Profiles", main)
