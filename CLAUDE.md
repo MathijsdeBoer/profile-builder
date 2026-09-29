@@ -6,6 +6,12 @@ Profile Builder is a FreeCAD workbench (FreeCAD 0.21+, developed on 1.1) that ge
 aluminium T-slot / V-slot extrusion profiles, joins them on sketch edges, adds sheet panels, and
 produces cut lists, stock bar plans and cost estimates. See README.md for the user-facing features.
 
+It is meant for a broad international audience: hobbyists and professionals, in metric and imperial
+regions, buying from many suppliers. Don't build in regional defaults such as a currency, a number
+format, a tax name, a supplier or metric-only units. Take them from the system locale
+(`pricing.default_currency`, `pricing.format_money`) or FreeCAD's settings, or make them a setting.
+Known gaps are in `docs/plans/international-units-and-formats.md`.
+
 ## Commands
 
 pytest is not installed globally; run it through uv:
@@ -55,14 +61,30 @@ The modules form layers, and the lower ones must stay importable without the GUI
     slot dimensions; a test enforces this.
   - `validate()` catches impossible geometry, both in tests and at recompute time.
 - **Stock planner (`stock.py`)**: pure Python 1D cutting-stock (first/best-fit decreasing).
+- **Piece identity (`pieces.py`)**: pure Python. `canonical_cuts()` decides which pieces are identical
+  by applying physical turns that keep the closed faces in place. It is why mirror-image miter pieces
+  share a cut-list row. It also provides the `letters()` used for piece marks and spreadsheet columns.
 - **Geometry (`geometry.py`)**: builds the 2D section as a single `Part.Face` by cutting slots, cavities,
   bores and chambers from a rounded rectangle, then extrudes it. Miters are cut with rotated boxes around
   the section-centre pivot.
+  - `make_section` is LRU-cached and returns `.copy()`. Never hand out or modify the cached face itself.
+  - Tests that time or compare sections call `clear_section_cache()`.
 - **Document objects (`feature.py`, `joints.py`, `panels.py`, `pricing.py`)**: FeaturePython objects
   with view providers. `feature.Frame` / `member_frame()` gives a profile's world axes plus its section
   rectangle. Joints and panels use it for all placement maths.
 - **Report (`cutlist.py`)**: `build_report(doc)` returns a `Report`. `_blocks()` turns it into the rows
   that both the spreadsheet and the CSV writer use.
+  - Objects with errors go into `Report.errors`, shown as a block at the top, and the total is marked
+    incomplete. Nothing may silently drop out of the list.
+  - "Has an error" is `feature.problem(obj)`, not just `isValid()`. When something a profile depends on
+    fails (a joint, a deleted sketch line), FreeCAD skips the profile but leaves it valid, with its old
+    length; `problem()` catches that.
+  - Pieces are compared on the upright section (`pieces.upright`: Rows >= Columns), so a 1x2 and a
+    2x1 "on side" profile are the same product. `feature.product_key` names closed faces that way.
+    Prices saved under the old key are found through `legacy_product_key`.
+  - Callers run `recompute_if_needed(doc)` first.
+  - Index rows through `PIECE_HEADER.index(...)`, not fixed positions.
+  - `apply_marks()` writes `PieceMark`, an output property, so writing it does not trigger a recompute.
 - **GUI (`commands.py`, `taskpanel.py`, `simple_panel.py`, `pricing_ui.py`)**: the GUI modules only.
   Every task panel opens a document transaction, applies changes live on a debounce timer, and
   implements Cancel as `abortTransaction()`.
@@ -88,12 +110,24 @@ The modules form layers, and the lower ones must stay importable without the GUI
     `ThroughRule == "Manual"`, then the profiles' `JointRole`, then the rule. Ties are broken by
     direction (X, then Y, then Z), never by object name; name-based tie-breaking caused the
     "pinwheel" bug.
+  - A manual choice is stored by object name in `ThroughName`, because labels change. `Through` is
+    only the label shown in the UI.
+  - A joint-driven miter sets `StartMiterFromJoint` / `EndMiterFromJoint`, so the profile goes back to a
+    square cut when the joint is removed. `MiterStartAxis` / `MiterEndAxis` record the axis each end was
+    actually cut across; the cut list needs it to group pieces.
 - **Backward compatibility of saved documents**:
   - `onDocumentRestored` calls `add_properties()`, which adds a property only if it is missing, and
     refreshes enumeration lists (Series, ThroughRule) while preserving their value.
   - All of this runs under a `_restoring` guard. Without the guard, a newly added `Weight` property
     would trigger `apply_series_defaults()` and wipe the user's customised dimensions.
   - Changing `Series` or `Weight` intentionally resets the dimensions.
+  - `onChanged` handlers must return early while `feature.replaying(obj)` is true. Undo and Cancel
+    (`abortTransaction`) write old values back with `Document.Transacting` set, and reacting to them
+    (resetting dimensions, switching a joint to Manual) corrupts what they restore.
+  - `tests/fixtures/legacy_ead3f7d.FCStd` is a document saved by an older version; the smoke test opens
+    it and compares with the stored results. Don't regenerate it with the current code.
+- **Panel materials**: `panels.material_data` returns None for unknown or ambiguous names ("glass-clear
+  PETG"). `Expansion == 0` means "not known", and the thermal check is then skipped rather than guessed.
 - **Product keys**:
   - `Designation` (e.g. `"4040 Ultralight V-slot (40-8)"`) plus the closed faces
     (`feature.product_key`) is the key for prices, stock lengths and cut-list grouping.
@@ -109,8 +143,11 @@ The modules form layers, and the lower ones must stay importable without the GUI
 
 - On this Windows machine Python's default encoding is cp1252. Always pass `encoding="utf-8"` when a
   script rewrites source files; the sources contain `°`, `×`, `²` and `Ø`.
-- Python replacement scripts in bash heredocs have turned `"\n"` escapes into real line breaks; prefer
-  the Edit tool for such changes.
+- Python replacement scripts in bash heredocs have mangled escapes: `"\n"` became a real line break,
+  and `\b` in a regex became a backspace character. Prefer the Edit tool for such changes, and check
+  for control characters after any scripted rewrite.
 - The profile dimensions are approximate values, not vendor drawings (see README "Accuracy").
+- Planned features are in `docs/plans/`, one file per feature with a status. Update its status and
+  the index table when you implement or change one.
 - The maintainer wants AI involvement recorded openly. Commits carry the `Co-Authored-By` trailer, and
   significant work should get a row in the timeline in `AI_DISCLOSURE.md`.

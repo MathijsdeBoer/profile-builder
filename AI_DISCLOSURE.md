@@ -18,7 +18,8 @@ carry a `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer.
 
 ## Timeline
 
-All work was done in one Claude Code session.
+All work was done in one Claude Code session. On 2026-09-28 the session also ran Claude Code workflows,
+which spread work over several subagents of the same model.
 
 | Date | Work | Commit |
 |---|---|---|
@@ -26,7 +27,12 @@ All work was done in one Claude Code session.
 | 2026-09-24 | Joints (butt, miter, T-junctions), sheet panels, pricing with delivery and tax, stock bar optimisation, cost report. | |
 | 2026-09-24 | Control over which profile runs through a butt joint (`JointRole`, **Run through**, **Swap joint**), after a problem found in manual testing. | `8733122` |
 | 2026-09-25 | Slot systems (B-type, I-type, Misumi), I-type series, weight classes (Standard, Light, Ultralight, Heavy). | `a238935` |
-| 2026-09-25 | This disclosure. | |
+| 2026-09-25 | This disclosure. | `f4d8bfe` |
+| 2026-09-25 | `CLAUDE.md` guidance for future AI sessions. | `ead3f7d` |
+| 2026-09-28 | Feature brainstorm as a multi-agent Claude Code workflow: 6 idea agents, 1 merge agent, 3 agents checking the ideas against the code. The result is `docs/plans/`. | |
+| 2026-09-28 | Fixes for bugs found by that check, and the quick wins: section properties, section cache, panel materials and thermal fit, piece marks, a CSV variant with decimal commas. | `46a7734` |
+| 2026-09-28 | An adversarial review of those changes as a second workflow: 5 reviewers, then one verifier per finding, which had to reproduce the finding in FreeCAD. The 21 confirmed defects were fixed, each with a regression test, and a document saved by the previous version was added as a test fixture. | `46a7734` |
+| 2026-09-29 | Removal of regional assumptions that had crept in from one example supplier: currency and money format now follow the system region, the CSV and tax wording is neutral, and a plan for imperial units and profiles was added. A third workflow (6 agents rewriting, 1 re-rating) rewrote the plans for a broad international audience and re-rated their value. | `85c13f3` |
 
 ## Who did what
 

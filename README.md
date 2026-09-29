@@ -122,6 +122,11 @@ large 40/45 sizes. The same applies to the section properties (Ix, Iy, W). Check
 before relying on them. The expansion coefficients are typical values for each material, so the thermal
 fit check is a rule of thumb.
 
+## Roadmap
+
+[docs/plans](docs/plans/README.md) holds the planned features, each with the problem it solves, a
+proposal, an implementation approach checked against the code, and the effort.
+
 ## Development
 
 - `python -m pytest tests`: catalog, stock and piece-identity tests, no FreeCAD needed
