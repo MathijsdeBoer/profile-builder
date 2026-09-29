@@ -38,6 +38,7 @@ which spread work over several subagents of the same model.
 | 2026-09-29 | Frame stiffness estimate (first stage): a 3D beam solver tested against closed forms, a model built from the profiles and joints, results as a range between loose and stiff joints, and a baseline to compare variants. The review found 7 issues; 6 were fixed. | `feature/frame-stiffness` |
 | 2026-09-29 | Linear axis carriage: the clear run and stroke from the members that really block the carriage, and the belt length as metre ware in the cut list. The review found 4 issues; all were fixed. | `feature/linear-axis` |
 | 2026-09-29 | Bracket placement: the user's own bracket part in the square corners of butt joints, as a link array, with calibration from two contact faces and a Hardware block in the cut list. The review found 6 issues; 5 were fixed (the sixth was these documentation rows). | `feature/brackets` |
+| 2026-09-30 | Fix for a tie in choosing the through profile in frames turned 45°, which fell back to creation order (a variant of the pinwheel bug). Found by the bracket reviewer, written in a separate Claude Code session started from that suggestion, then checked (including that its tests fail without the fix) and merged by the maintainer's session. | `b5075a1` |
 
 ## Who did what
 
