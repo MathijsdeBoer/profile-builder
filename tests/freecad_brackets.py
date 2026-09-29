@@ -2,7 +2,10 @@
 
 A small L-shaped Part solid with slot keys stands in for a supplier's STEP
 bracket. It is modelled in a skewed position, as imports are, so the
-calibration has to find its frame.
+calibration has to find its frame. One section also writes it to a real STEP
+file and imports that.
+
+A traceback about "no bracket part" is expected: that is a deliberate error case.
 """
 
 import os
@@ -160,12 +163,20 @@ segments = []
 for z in (0, S):
     segments += [((*a, z), (*b, z)) for a, b in zip(corners, corners[1:] + corners[:1])]
 segments += [((*c, 0), (*c, S)) for c in corners]
-lines = lines_object("CubeLines", segments)
-doc.recompute()
-cube = [feature.make_profile("20-6", 1, 1, 100, doc, edge=(lines, f"Edge{i + 1}")) for i in range(12)]
-doc.recompute()
-cube_joints = joints.create_joints(doc, cube, "Butt", "Vertical")
-doc.recompute()
+
+
+def build_cube():
+    """(lines, profiles, joints) of the 400 mm cube of 2020 in ``doc``, posts running through."""
+    lines = lines_object("CubeLines", segments)
+    doc.recompute()
+    cube = [feature.make_profile("20-6", 1, 1, 100, doc, edge=(lines, f"Edge{i + 1}")) for i in range(12)]
+    doc.recompute()
+    cube_joints = joints.create_joints(doc, cube, "Butt", "Vertical")
+    doc.recompute()
+    return lines, cube, cube_joints
+
+
+lines, cube, cube_joints = build_cube()
 check(len(cube_joints) == 8, "cube: 8 joints")
 
 objects_before = len(doc.Objects)
@@ -295,8 +306,8 @@ check(br.Count == 16, f"3030 posts: 16 brackets, none between the rails ({br.Cou
 check(not wrong and overlap < 1e-3 and clash < 1e-3, f"3030 posts: touching, no overlap ({wrong[:2]}, {overlap:.4f})")
 
 # Stretching the sketch lines: the brackets follow.
-segments = [((a[0] * 1.5, a[1], a[2]), (b[0] * 1.5, b[1], b[2])) for a, b in segments]
-lines.Shape = Part.makeCompound([Part.makeLine(V(*a), V(*b)) for a, b in segments])
+stretched = [((a[0] * 1.5, a[1], a[2]), (b[0] * 1.5, b[1], b[2])) for a, b in segments]
+lines.Shape = Part.makeCompound([Part.makeLine(V(*a), V(*b)) for a, b in stretched])
 doc.recompute()
 wrong, overlap, clash = fit_report(cube)
 check(br.Count == 16 and not wrong and overlap < 1e-3, f"stretched cube: brackets follow ({wrong[:2]})")
@@ -387,6 +398,18 @@ check(gb.Count == 2, f"closed face: no brackets on it ({gb.Count})")
 goal[2].ClosedTop = False
 doc.recompute()
 
+# A rail turned by Spin has no face flat in the corners: none there, and a note says why.
+goal[2].Spin = 30
+doc.recompute()
+check(gb.Count == 0 and any("turned by Spin" in n for n in gb.Notes), f"turned rail: noted, no brackets ({gb.Notes})")
+goal[2].Spin = 90  # a quarter turn keeps the faces square
+doc.recompute()
+wrong, overlap, clash = fit_report(goal)
+check(gb.Count == 4 and not wrong and overlap < 1e-3 and not gb.Notes,
+      f"rail turned a quarter turn: brackets again ({gb.Count}, {gb.Notes})")
+goal[2].Spin = 0
+doc.recompute()
+
 # A 2040 rail lying flat has two slots on top, neither in line with the 2020 post's slot: no
 # brackets there, and a note says why.
 goal[2].Columns = 2
@@ -429,6 +452,61 @@ wrong, overlap, clash = fit_report(goal + [middle])
 heights = sorted({round(pl.Base.z, 3) for pl in gb.PlacementList})
 check(gb.Count == 6 and not wrong and overlap < 1e-3 and clash < 1e-3 and heights == [400.0, 440.0],
       f"anchored rail: brackets at its faces ({gb.Count}, {heights}, {wrong[:2]})")
+
+# ---- one bracket per slot: 40 x 40 profiles of the 20 series have two slots on each face ----------
+
+doc = App.newDocument("wide")
+lines = lines_object("Goalpost", [((0, 0, 0), (0, 0, 500)), ((400, 0, 0), (400, 0, 500)),
+                                  ((0, 0, 400), (400, 0, 400))])
+doc.recompute()
+wide = [feature.make_profile("20-6", 2, 2, 100, doc, edge=(lines, f"Edge{i + 1}")) for i in range(3)]
+doc.recompute()
+joints.create_joints(doc, wide, "Butt", "Vertical")
+doc.recompute()
+part = doc.addObject("Part::Feature", "Bracket")
+part.Shape = L
+br = brackets.make_brackets(doc, part, brackets.all_joints(doc))
+doc.recompute()
+LOCAL = L
+wrong, overlap, clash = fit_report(wide)
+across = sorted({round(pl.Base.y, 3) for pl in br.PlacementList})
+check(br.Count == 4 and across == [-10.0, 10.0],
+      f"two slots per face: two brackets side by side ({br.Count}, {across})")
+check(not wrong and overlap < 1e-3 and clash < 1e-3, f"two slots per face: they fit ({wrong[:2]}, {overlap:.4f})")
+
+# ---- a real STEP file, exported and imported again as a supplier's file would be ---------------------
+
+import Import  # noqa: E402
+
+vendor = App.newDocument("vendor")
+vendor_part = vendor.addObject("App::Part", "VendorBracket")
+vendor_body = vendor.addObject("Part::Feature", "Body")
+vendor_body.Shape = L.transformed(skew.toMatrix(), True)  # modelled around the vendor's own origin
+vendor_part.addObject(vendor_body)
+vendor.recompute()
+step_path = os.path.join(tempfile.gettempdir(), "pb_brackets.step")
+Import.export([vendor_part], step_path)
+App.closeDocument(vendor.Name)
+
+doc = App.newDocument("stepfile")
+lines, cube, cube_joints = build_cube()
+Import.insert(step_path, doc.Name)
+doc.recompute()
+imported = [o for o in doc.Objects if o.TypeId == "App::Part"]
+bodies = [o for o in imported[0].Group if o.isDerivedFrom("Part::Feature")] if len(imported) == 1 else []
+check(len(bodies) == 1, f"STEP file: imported as an App::Part holding the body ({[o.Name for o in imported]})")
+if len(bodies) == 1:
+    asm, body = imported[0], bodies[0]
+    s1, s2, _v = canonical_faces(body.Shape, skew)  # a body's Shape is in its container
+    part, frame, notes = brackets.calibrate([(asm, f"{body.Name}.Face{s1}"), (asm, f"{body.Name}.Face{s2}")])
+    check(part == asm and same_placement(frame, skew, 1e-4) and not notes,
+          f"STEP file: calibrated through the imported App::Part ({frame}, {notes})")
+    br = brackets.make_brackets(doc, asm, cube_joints, frame)
+    doc.recompute()
+    LOCAL = Part.getShape(asm, "", transform=False)
+    wrong, overlap, clash = fit_report(cube)
+    check(len(LOCAL.Solids) == 1 and br.Count == 24 and not wrong and overlap < 1e-3 and clash < 1e-3,
+          f"STEP file: 24 brackets on the cube, touching and not overlapping ({br.Count}, {wrong[:2]}, {overlap:.4f})")
 
 # ---- miter corners get no brackets yet, and say so -----------------------------------------
 

@@ -71,8 +71,8 @@ def face_slots(obj, frame, normal, across):
     """Slot centre lines on the face of a profile whose outward normal is ``normal``.
 
     They are returned as distances along ``across`` from the profile's axis
-    line. None when the profile has no face that way (it is turned by Spin) or
-    the face is closed.
+    line. An empty list when the face is closed, None when the profile has no
+    face that way (Spin turns it by other than a multiple of 90°).
     """
     for name, axis, sign in FACE_AXES:
         if (getattr(frame, axis) * sign).dot(normal) > joints.PARALLEL:
@@ -80,7 +80,7 @@ def face_slots(obj, frame, normal, across):
     else:
         return None
     if getattr(obj, f"Closed{name}"):
-        return None
+        return []
     x0, _x1, y0, _y1 = frame.rect
     cell = obj.CellSize.Value
     if axis == "y":  # Top and Bottom faces: the slots sit side by side along X
@@ -105,8 +105,13 @@ def _corner(vertex, first, first_frame, a, second, second_frame, n):
     across.normalize()
     mine = face_slots(first, first_frame, n, across)
     theirs = face_slots(second, second_frame, a, across)
+    turned = [p.Label for p, slots in ((first, mine), (second, theirs)) if slots is None]
+    if turned:
+        verb = "is" if len(turned) == 1 else "are"
+        return [], (f"{' and '.join(turned)} {verb} turned by Spin, so no face lies flat in the corner of "
+                    f"{first.Label} and {second.Label}; that corner gets no bracket")
     if not mine or not theirs:
-        return [], None
+        return [], None  # a closed face
     corner = vertex + a * second_frame.support(a) + n * first_frame.support(n)
     found = [_placement(corner + across * ((s + t) / 2), a, n)
              for s in mine for t in theirs if abs(s - t) <= SLOT_TOLERANCE]

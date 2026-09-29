@@ -27,8 +27,12 @@ Done:
     continues (one side at a corner, both at a T-junction);
   - between two profiles ending square to each other against the same profile, if both ends reach the
     other's face. With 3030 posts and 2020 rails they do not, so that corner gets none.
-  - One bracket per slot that lines up on both contact faces (within 0.5 mm). Closed faces get none;
-    misaligned slots (a flat 2040 rail on a 2020 post) get a note.
+  - One bracket per slot that lines up on both contact faces (within 0.5 mm), so a 40 x 40 profile of
+    the 20 series gets two side by side. Closed faces get none; misaligned slots (a flat 2040 rail on a
+    2020 post) and profiles turned by a Spin that is not a multiple of 90° get a note.
+  - The brackets follow the profiles' faces, not the sketch lines, so Anchor, Spin and size changes are
+    taken into account. A joint `Gap` is bridged (the bracket still sits on both faces); a butting end
+    trimmed short of the other profile (negative Extend) leaves no corner, so it gets none.
   - `Rule`: "Inner faces" skips the side of a T-junction that faces away from the middle of the frame
     (the length-weighted centre of the members' path edges); "All open faces" places both.
 - **Calibration** (`brackets.calibrate`, command **Calibrate bracket**, and **Brackets...** itself): the
@@ -38,19 +42,26 @@ Done:
   work on a Part feature, through an App::Part (as STEP imports are) and plain groups, and on a placed
   bracket. Picking the inner faces of the L is refused.
 - `SwapLegs` and `SlotOffset` (along the bracket's width) adjust the frame.
+- The **Brackets...** command hides the original part (the brackets show it in the corners); deleting
+  the Brackets object shows it again unless another Brackets object places it.
 - **Cut list**: a "Hardware (counted, not priced)" block with quantity, item (the part's label or a
   typed `Item`) and a typed `ArticleNumber`. A broken Brackets object is listed under Attention and not
   counted; its notes go to Notes.
 - **Tests**: `tests/freecad_brackets.py`. The 400 mm 2020 cube gets 24 inner brackets, each touching
   exactly its two profiles, with no overlap between brackets and profiles or between brackets. The test
-  bracket has slot keys, so a bracket off the slot centre would hit the lips. It also covers joint
-  swaps, SwapLegs, SlotOffset, size changes, stretched sketches, save/reopen, undo, rules at
-  T-junctions, closed faces, misaligned slots, miter joints, a missing part, AllJoints and the command
-  flow (with a stand-in for the GUI selection).
+  bracket has slot keys, so a bracket off the slot centre would hit the lips. It is also written to a
+  real STEP file and imported again (an App::Part holding the body, with its own Origin), calibrated
+  through the import and placed on a second cube. The test also covers joint swaps, SwapLegs,
+  SlotOffset, joint gaps, trimmed ends, anchors, Spin, size changes, two slots per face, stretched
+  sketches, save/reopen, undo, rules at T-junctions, closed faces, misaligned slots, miter joints, a
+  missing part, AllJoints and the command flow (with a stand-in for the GUI selection).
 
 Not done yet:
-- Miter corners (noted in the object's Notes), angled butt joints and brackets across the width of a
-  wider through profile (e.g. two brackets on a 2040 post's wide face for one 2020 rail).
+- Miter corners (noted in the object's Notes) and angled butt joints.
+- Corners whose slots do not line up, such as a 2020 rail centred on the wide face of a 2040 post, get a
+  note instead of a bracket. Offset brackets, or brackets that span a wider face, are not modelled.
+- Flat corner plates and gussets on the outside faces of a corner (only brackets inside the corner are
+  placed).
 - Pricing and pack sizes of hardware, and hardware mass in the delivery weight: see
   [hardware BOM](hardware-bom.md), which should extend the Hardware block.
 - Clash checks (bracket against panel, door or other bracket): see [frame check](frame-check.md). The
