@@ -55,6 +55,10 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
   - The CSV export writes either decimal points with commas between fields, or decimal commas with
     semicolons, as used in many regions. It offers your system's format first.
   - Amounts use your system's currency symbol and number format; the currency can be set per document.
+- **Frame stiffness (estimate)**: sideways and twist stiffness at the top of the frame and its first
+  natural frequencies, from a beam model of the profiles and joints. Joint stiffness is not known, so
+  every value is a range between loose and rigid joints. Store a baseline to compare design variants
+  (for example "1.1–1.9× stiffer, +1.0 kg"). Values follow FreeCAD's unit schema.
 
 ## Install
 
@@ -78,6 +82,7 @@ tested on 1.1.
 | **Pricing and stock...** | Prices, stock bar length, kerf, cutting, delivery and tax, with a live estimate. |
 | **Cut list and costs** | Creates or updates the `Cut list` spreadsheet. |
 | **Export cut list (CSV)** | Writes the same data to a CSV file. |
+| **Frame stiffness...** | Estimates sideways and twist stiffness and natural frequencies, as a range between loose and stiff joints, and compares with a stored baseline. |
 
 ### Frame workflow
 
@@ -120,7 +125,9 @@ specific vendor's profile, so their masses are estimates.
 Mass is estimated from the modelled section, which is simplified, so it comes out a little heavy on the
 large 40/45 sizes. The same applies to the section properties (Ix, Iy, W). Check the vendor datasheet
 before relying on them. The expansion coefficients are typical values for each material, so the thermal
-fit check is a rule of thumb.
+fit check is a rule of thumb. The frame stiffness is an estimate for comparing designs. It assumes a
+joint stiffness range and a rough torsion constant, and panels add mass but no bracing. T-nut slip,
+belts, drives and the floor are not modelled.
 
 ## Roadmap
 
@@ -130,5 +137,7 @@ proposal, an implementation approach checked against the code, and the effort.
 ## Development
 
 - `python -m pytest tests`: catalog, stock and piece-identity tests, no FreeCAD needed
+- `uvx --with numpy --with scipy pytest tests`: also runs the frame solver tests (skipped without numpy/scipy)
 - `freecadcmd tests/freecad_smoke.py`: geometry, edges, miters, save/reload and cut list (run it from the repo root)
+- `freecadcmd tests/freecad_stiffness.py`: the frame stiffness estimate against closed forms, baseline and units
 - `freecadcmd tools/make_icons.py`: regenerates the toolbar icons from the real geometry
