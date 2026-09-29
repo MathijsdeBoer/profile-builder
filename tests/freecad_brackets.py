@@ -277,6 +277,14 @@ check(overlap > 1.0, f"slot offset shifts the brackets across the slot ({overlap
 br.SlotOffset = 0.0
 doc.recompute()
 
+# A joint gap: the profiles stop short of each other, and the brackets bridge it.
+corner.Gap = 1.0
+doc.recompute()
+wrong, overlap, clash = fit_report(cube)
+check(br.Count == 24 and not wrong and overlap < 1e-3 and clash < 1e-3,
+      f"joint gap: brackets still in all three corners ({br.Count}, {wrong[:2]}, {overlap:.4f})")
+corner.Gap = 0.0
+
 # Bigger posts: the brackets follow, and the rails no longer close a corner between them.
 corner.ThroughRule = "Vertical"  # undo the swap: posts run through everywhere again
 for p in cube[8:]:
@@ -406,6 +414,21 @@ wrong, overlap, clash = fit_report(goal + [middle])
 check(len(new_joints) == 1 and new_joints[0] in gb.Joints and gb.Count == 6 and middle in gb.Members,
       f"all joints: the new T-junction gets a bracket on each side ({gb.Count})")
 check(not wrong and overlap < 1e-3 and clash < 1e-3, f"all joints: the new brackets fit ({wrong[:2]}, {overlap:.4f})")
+
+# A rail trimmed short of a post leaves no corner there.
+goal[2].ExtendStart = -5.0
+doc.recompute()
+check(gb.Count == 4, f"trimmed rail end: no brackets at that post ({gb.Count})")
+goal[2].ExtendStart = 0.0
+doc.recompute()
+
+# The anchor moves the rail's section off its sketch line; the brackets follow its faces.
+goal[2].Anchor = "Bottom center"
+doc.recompute()
+wrong, overlap, clash = fit_report(goal + [middle])
+heights = sorted({round(pl.Base.z, 3) for pl in gb.PlacementList})
+check(gb.Count == 6 and not wrong and overlap < 1e-3 and clash < 1e-3 and heights == [400.0, 440.0],
+      f"anchored rail: brackets at its faces ({gb.Count}, {heights}, {wrong[:2]})")
 
 # ---- miter corners get no brackets yet, and say so -----------------------------------------
 

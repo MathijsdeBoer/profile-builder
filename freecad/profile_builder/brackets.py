@@ -35,7 +35,7 @@ TYPE = "ProfileBuilder::Brackets"
 RULES = ("Inner faces", "All open faces")
 FIELDS = ("Rule", "AllJoints", "SwapLegs", "SlotOffset", "Item", "ArticleNumber")
 SLOT_TOLERANCE = 0.5  # mm: the slots of the two contact faces must line up this well
-MEET = 0.01  # mm: how far a butting end may stop short of the other profile's face
+MEET = 0.01  # mm: how far a butting end may stop short of the other profile's face, besides the joint's Gap
 OUTWARD = 1.0  # mm: a T-junction side faces out of the frame only beyond this
 SQUARE = 0.02  # |cos| below which two contact faces count as square to each other (about 1 degree)
 SWAP = App.Rotation(V(1, 1, 0), 180)  # swaps the legs: X <-> Y, Z -> -Z
@@ -152,13 +152,19 @@ def joint_spots(joint, rule, centre):
         if note:
             notes.append(f"{joint.Label}: {note}")
 
+    # A profile stopping further from a face than the joint's gap (trimmed, or kept away by a
+    # wider through profile) leaves no corner for a bracket there.
+    short = joint.Gap.Value + MEET
+
     if through is not None:
         tf = frames[through.Name]
         # Where the through profile continues: one way from a corner, both ways at a T-junction.
         sides = [tf.z, tf.z * -1] if through_end is None else [joints._away(tf, through_end)]
-        for obj, _end, a in butting:
+        for obj, end, a in butting:
             if abs(a.dot(tf.z)) > joints.PERPENDICULAR:
                 continue  # in line with it: no corner
+            if _reach(joint, obj, end) > tf.support(a) + short:
+                continue
             for n in sides:
                 if rule == "Inner faces" and len(sides) > 1 and n.dot(centre - vertex) < -OUTWARD:
                     continue  # the side of a T-junction that faces out of the frame
@@ -171,9 +177,9 @@ def joint_spots(joint, rule, centre):
             if abs(pa.dot(qa)) > joints.PERPENDICULAR:
                 continue
             pf, qf = frames[p.Name], frames[q.Name]
-            # A profile stopped short of the other one's face (e.g. by a wider
-            # through profile) leaves no closed corner between them.
-            if _reach(joint, p, pe) > qf.support(pa) + MEET or _reach(joint, q, qe) > pf.support(qa) + MEET:
+            # Each end must reach the other profile's face; with 3030 posts and
+            # 2020 rails, for example, the post keeps the rails apart.
+            if _reach(joint, p, pe) > qf.support(pa) + short or _reach(joint, q, qe) > pf.support(qa) + short:
                 continue
             add(p, pf, pa, q, qf, qa)
     return found, notes
@@ -595,6 +601,18 @@ class ViewProviderBrackets:
             return None
         import FreeCADGui as Gui
         Gui.Control.closeDialog()
+        return True
+
+    def onDelete(self, vobj, subelements):
+        # The Brackets command hid the part; show it again when nothing else places it.
+        try:
+            obj = vobj.Object
+            part = obj.LinkedObject
+            others = [o for o in obj.Document.Objects if is_brackets(o) and o != obj and o.LinkedObject == part]
+            if part is not None and not others and getattr(part, "ViewObject", None) is not None:
+                part.ViewObject.Visibility = True
+        except Exception:  # noqa: BLE001  (never block the deletion)
+            pass
         return True
 
     def doubleClicked(self, vobj):
