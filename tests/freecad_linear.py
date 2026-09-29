@@ -1,5 +1,6 @@
 """Carriage (linear axis) tests. Run from the repo root with:  freecadcmd tests/freecad_linear.py"""
 
+import math
 import os
 import sys
 import tempfile
@@ -17,7 +18,7 @@ freecad.__path__.insert(0, os.path.join(ROOT, "freecad"))
 import FreeCAD as App  # noqa: E402
 import Part  # noqa: E402
 
-from freecad.profile_builder import feature, joints, linear, panels  # noqa: E402
+from freecad.profile_builder import cutlist, feature, joints, linear, panels  # noqa: E402
 
 _loaded = os.path.normcase(os.path.realpath(feature.__file__))
 if not _loaded.startswith(os.path.normcase(os.path.realpath(ROOT))):
@@ -47,6 +48,24 @@ def lines_object(doc, name, segments):
 def box_of(obj):
     bb = obj.Shape.BoundBox
     return tuple(round(v, 6) for v in (bb.XMin, bb.XMax, bb.YMin, bb.YMax, bb.ZMin, bb.ZMax))
+
+
+def face_span(rail, face):
+    """(start, end) along the rail axis of one side face of the rail's solid, from its vertices."""
+    fr = feature.member_frame(rail)
+    x0, x1, y0, y1 = fr.rect
+    axis, value = {"Top": (fr.y, y1), "Bottom": (fr.y, y0), "Left": (fr.x, x0), "Right": (fr.x, x1)}[face]
+    ss = [(v.Point - fr.origin).dot(fr.z) for v in rail.Shape.Vertexes
+          if abs((v.Point - fr.origin).dot(axis) - value) < 1e-6]
+    return min(ss), max(ss)
+
+
+def touched(doc):
+    return [o.Name for o in doc.Objects if "Touched" in o.State]
+
+
+def linked(car):
+    return [o.Name for o in car.Neighbours]
 
 
 def post_frame(doc, post_series="40-8", rail_z=300):
@@ -303,6 +322,154 @@ check(near(car.ClearRun.Value, 580), f"full-width carriage on a mitered rail: th
 car.EnvelopeWidth = 10
 doc.recompute()
 check(near(car.ClearRun.Value, 590), f"a 10 mm wide carriage: 590 ({car.ClearRun})")
+# The ring lies in the XY plane, so its outer side (world -Y) is the Left face of the first side.
+car.EnvelopeWidth = 20
+car.Face = "Left"
+doc.recompute()
+span = face_span(sides[0], "Left")
+check(near(span[1] - span[0], 620) and near(car.ClearRun.Value, 620) and "the start of" in car.Limits,
+      f"the outer face of a mitered ring is longer than the axis: 620 ({car.ClearRun}, face {span})")
+car.Face = "Right"
+doc.recompute()
+check(near(car.ClearRun.Value, 580), f"and the inner face shorter: 580 ({car.ClearRun})")
+
+# One miter on a free rail: positive makes the +X side long, so the Right face gains what the Left loses.
+free = feature.make_profile("20-6", 1, 1, 500, doc, MiterStart=30, MiterAcross="X",
+                            Placement=App.Placement(V(0, 0, 1000), App.Rotation()))
+doc.recompute()
+gain = 10 * math.tan(math.radians(30))
+for face, expected in (("Right", 500 + gain), ("Left", 500 - gain)):
+    c = linear.make_carriage(doc, free, face, CarriageLength=60)
+    doc.recompute()
+    span = face_span(free, face)
+    check(near(span[1] - span[0], expected) and near(c.ClearRun.Value, expected)
+          and near(c.Shape.BoundBox.ZMin, 1000 + span[0]),
+          f"single miter, {face} face: run {expected:.3f} from its start ({c.ClearRun}, face {span})")
+App.closeDocument(doc.Name)
+
+# The same in a vertical frame: the outer (Top) face of the top rail, with the miters across Y.
+doc = App.newDocument("carriage_miter_vertical")
+ring = lines_object(doc, "Ring", [((0, 0, 0), (600, 0, 0)), ((600, 0, 0), (600, 0, 400)),
+                                  ((600, 0, 400), (0, 0, 400)), ((0, 0, 400), (0, 0, 0))])
+doc.recompute()
+sides = [feature.make_profile("20-6", 1, 1, 100, doc, edge=(ring, f"Edge{i}")) for i in (1, 2, 3, 4)]
+doc.recompute()
+joints.create_joints(doc, sides, "Miter")
+doc.recompute()
+car = linear.make_carriage(doc, sides[2], "Top", CarriageLength=60, RequiredStroke=560)
+doc.recompute()
+check(near(car.ClearRun.Value, 620) and near(car.Stroke.Value, 560) and car.Warning == "",
+      f"outer face of a vertical frame: run 620, stroke 560, no warning ({car.ClearRun}, {car.Warning!r})")
+car.Face = "Bottom"
+doc.recompute()
+check(near(car.ClearRun.Value, 580), f"its inner face: 580 ({car.ClearRun})")
+App.closeDocument(doc.Name)
+
+# ---- only the members that reach the envelope are dependencies ------------------
+
+doc = App.newDocument("carriage_links")
+_lines, posts, rail = post_frame(doc)
+car = linear.make_carriage(doc, rail, "Top", CarriageLength=60, EndStopLength=5, BeltItem="GT2 6 mm",
+                           BeltPitch=2, PulleyTeeth=20)
+doc.recompute()
+far_line = lines_object(doc, "FarLine", [((5000, 0, 0), (5000, 0, 800))])
+doc.recompute()
+far = feature.make_profile("20-6", 1, 1, 100, doc, edge=(far_line, "Edge1"))
+doc.recompute()
+check(all(p.Name in linked(car) for p in posts) and far.Name not in linked(car) and not touched(doc),
+      f"the posts are linked, a profile far away is not ({linked(car)})")
+# The far line is deleted, so that profile has an error (the traceback below is expected). The
+# carriage does not depend on it and still moves.
+print("(an error about the path edge of FarLine follows; it is expected)")
+far_line.Shape = Part.Shape()
+doc.recompute()
+car.PositionPercent = 100
+doc.recompute()
+check(feature.problem(far) is not None and car.isValid() and "Touched" not in car.State
+      and near(car.Travel.Value, 490) and box_of(car)[:2] == (515.0, 575.0),
+      f"a broken member elsewhere does not stop the carriage ({car.State}, {car.Travel})")
+report = cutlist.build_report(doc)
+check(len(report.metre) == 1 and any(far.Label in e for e in report.errors)
+      and not any(car.Label in e for e in report.errors),
+      f"its belt stays in the metre ware ({report.metre}, {report.errors})")
+doc.removeObject(far.Name)
+doc.recompute()
+
+# A member that moves into the envelope is found, although the carriage did not link it.
+loose = feature.make_profile("20-6", 1, 1, 100, doc, Placement=App.Placement(V(300, 0, 2000), App.Rotation()))
+doc.recompute()
+check(loose.Name not in linked(car) and len(car.Runs) == 1, "a loose profile high above the rail is not linked")
+loose.Placement = App.Placement(V(300, 0, 310), App.Rotation())  # now it stands on the rail's top face
+doc.recompute()
+check(len(car.Runs) == 2 and loose.Label in car.Limits and loose.Name in linked(car) and not touched(doc),
+      f"moved onto the rail, it splits the run ({list(car.Runs)})")
+loose.Placement = App.Placement(V(300, 0, 2000), App.Rotation())
+doc.recompute()
+check(len(car.Runs) == 1 and loose.Name not in linked(car), f"moved away, it is unlinked ({list(car.Runs)})")
+# The same during a recompute: the line a profile follows is moved onto the rail.
+mover_line = lines_object(doc, "MoverLine", [((200, 0, 1000), (200, 0, 1300))])
+doc.recompute()
+mover = feature.make_profile("20-6", 1, 1, 100, doc, edge=(mover_line, "Edge1"))
+doc.recompute()
+check(len(car.Runs) == 1 and mover.Name not in linked(car), "a profile on a line high above: not linked")
+mover_line.Shape = Part.makeCompound([Part.makeLine(V(200, 0, 310), V(200, 0, 600))])
+doc.recompute()
+check(len(car.Runs) == 2 and mover.Label in " ".join(car.Runs) and not touched(doc),
+      f"its line moved onto the rail: found in the same recompute ({list(car.Runs)}, touched {touched(doc)})")
+
+# make_carriage keywords in any order: a Position given before PositionMode is kept.
+for props in ({"Position": 100, "PositionMode": "Distance"}, {"PositionMode": "Distance", "Position": 100}):
+    c = linear.make_carriage(doc, rail, "Bottom", CarriageLength=60, EndStopLength=5, **props)
+    doc.recompute()
+    check(c.PositionMode == "Distance" and near(c.Position.Value, 100) and near(c.Travel.Value, 100),
+          f"make_carriage({', '.join(props)}): travel 100 ({c.Position}, {c.Travel})")
+    doc.removeObject(c.Name)
+App.closeDocument(doc.Name)
+
+# ---- a gantry: a beam that follows the carriage -------------------------------------
+
+doc = App.newDocument("carriage_gantry")
+_lines, posts, rail = post_frame(doc)
+# The beams exist before the carriage. The first stands on it (the envelope ends at z = 320), the
+# second follows a line that is to follow the carriage.
+beam = feature.make_profile("20-6", 1, 1, 300, doc,
+                            Placement=App.Placement(V(300, 0, 330), App.Rotation(V(1, 0, 0), 90)))
+beam_line = lines_object(doc, "BeamLine", [((0, 100, 330), (0, 400, 330))])
+doc.recompute()
+beam2 = feature.make_profile("20-6", 1, 1, 100, doc, edge=(beam_line, "Edge1"))
+doc.recompute()
+car = linear.make_carriage(doc, rail, "Top", CarriageLength=60, EndStopLength=5)
+doc.recompute()
+check(beam.Name not in linked(car) and beam2.Name not in linked(car),
+      f"beams outside the envelope are not dependencies ({linked(car)})")
+try:
+    beam.setExpression(".Placement.Base.x", f"{car.Name}.Placement.Base.x")
+    accepted = True
+except Exception as e:  # noqa: BLE001
+    accepted = False
+    print(f"     setExpression: {type(e).__name__}: {e}")
+check(accepted, "the beam's Placement can follow the carriage by an expression (no cycle)")
+beam_car = linear.make_carriage(doc, beam, "Top", CarriageLength=40)  # the second axis, on the beam
+doc.recompute()
+check(near(beam.Placement.Base.x, 55) and near(beam_car.Placement.Base.x, 55),
+      f"the beam and its carriage sit over the carriage ({beam.Placement.Base.x}, {beam_car.Placement.Base.x})")
+car.PositionPercent = 50
+doc.recompute()
+check(near(car.Placement.Base.x, 300) and near(beam.Placement.Base.x, 300) and near(beam_car.Placement.Base.x, 300)
+      and near(car.Stroke.Value, 490) and car.isValid() and beam_car.isValid() and not touched(doc),
+      f"moving the carriage moves the gantry ({beam.Placement.Base.x}, touched {touched(doc)})")
+# The line of the second beam follows the carriage.
+try:
+    beam_line.setExpression(".Placement.Base.x", f"{car.Name}.Placement.Base.x")
+    accepted = True
+except Exception as e:  # noqa: BLE001
+    accepted = False
+    print(f"     setExpression: {type(e).__name__}: {e}")
+car.PositionPercent = 20
+doc.recompute()
+check(accepted and near(beam2.Shape.BoundBox.Center.x, car.Placement.Base.x) and near(car.Placement.Base.x, 153)
+      and beam2.isValid() and not touched(doc),
+      f"a beam on a line that follows the carriage ({beam2.Shape.BoundBox.Center.x}, {car.Placement.Base.x})")
 App.closeDocument(doc.Name)
 
 # ---- the task panel ---------------------------------------------------------------

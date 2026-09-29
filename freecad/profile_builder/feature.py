@@ -248,6 +248,9 @@ class Profile:
         if prop in SECTION_PROPS or prop == "Label":
             from . import joints
             joints.touch_joints_of(obj)
+        if prop == "Placement":  # also set by each recompute, after the new shape
+            from .linear import member_moved  # it may now block a carriage
+            member_moved(obj)
 
     def execute(self, obj):
         dims = dimensions(obj)

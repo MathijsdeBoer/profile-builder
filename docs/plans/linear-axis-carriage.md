@@ -16,9 +16,11 @@ The proposal is built (2026-09-29), with the gaps listed at the end. The code is
 - **Clear run from what really blocks the envelope**, as corrected below:
   - Every other profile and panel, plus the objects listed in Obstacles, is tested against the envelope swept along the rail: first a bounding box in the rail's frame, then a boolean with the envelope prism.
   - A member butting against another face does not block, unless the carriage wraps around that face. A T-junction member on the carriage's face splits the rail into runs; Run picks one (0 = the longest). A panel in the face's slot blocks the whole rail, which is reported as an error.
-  - Mitered rail ends shorten the face under the carriage.
+  - Mitered rail ends make the face under the carriage shorter (the inner face of a frame) or longer (the outer face) than the axis; the part of the face under the carriage's whole width decides.
 - **Outputs**: ClearRun, Stroke, Travel, Limits (what ends the run), Runs (all runs) and Warning. Warning covers a stroke below RequiredStroke, a carriage that does not fit, and a position outside the stroke. Warnings also go to the report view, and the tree's description shows the stroke. Lengths are formatted in the user's unit system.
-- **No cycles**: the carriage links to the rail and, through a Neighbours list (global-scope links, hidden in the property editor), to the other profiles and panels. It therefore recomputes after them, for example when the posts change from 40 to 45, and it never writes to them. New profiles and panels made by the workbench mark carriages for recompute, so they are found at once.
+- **No cycles**: the carriage links to the rail and, through a Neighbours list (global-scope links, hidden in the property editor), to the profiles and panels whose bounding box reaches its swept envelope. It therefore recomputes after them, for example when the posts change from 40 to 45, and it never writes to them.
+  - Members outside the envelope are not dependencies. A broken member elsewhere in the document (a deleted sketch line, a panel that is too thick) does not stop the carriage, and a member that rides on the carriage, such as a gantry beam standing on it, can follow it by an expression or on a sketch that does.
+  - A profile or panel that moves into the envelope marks the carriage for recompute (`member_moved`, called when its Placement changes, which it also does at the end of each recompute). During a recompute FreeCAD recomputes such a carriage in its second pass, so it is found in the same recompute. New profiles and panels made by the workbench also mark carriages for recompute.
 - **Shape**: a placeholder box, or the shape of a linked Body (for example an imported STEP) in carriage coordinates, adjusted with BodyPlacement.
 - **Belt drive**:
   - With BeltItem set (for example "GT2 6 mm"), the carriage gives BeltLength = 2 × PulleyCentres + π × pitch diameter + ClampAllowance, rounded up to whole teeth of BeltPitch.
@@ -32,14 +34,17 @@ The proposal is built (2026-09-29), with the gaps listed at the end. The code is
 - **Tests**: `tests/test_stroke.py` covers the rules and the belt formula, and `tests/test_metreware.py` the price parsing. `tests/freecad_linear.py` covers:
   - a rail between two posts, including 40 to 45 mm posts;
   - T-junctions on the carriage face, on another face, and with wrap;
-  - a through rail on posts, and a mitered ring;
+  - a through rail on posts; the inner and outer faces of a mitered ring and of a vertical mitered frame; a single miter on a free rail (so a sign error fails);
+  - only the members that reach the envelope are linked: a broken profile elsewhere does not stop the carriage or drop its belt, a member moved onto the rail (directly, or through the line it follows) is found in the same recompute, and a gantry beam and a second carriage on it follow the carriage by an expression;
+  - make_carriage keywords in any order (Position before PositionMode);
   - an obstacle, a panel in the slot and a linked body;
   - save and reload, undo, the carriage task panel and a user's own description;
   - belts in the cut list, the CSV and the spreadsheet, prices per foot, a missing price, a missing pulley size, and the Pricing dialog.
 
 Not done yet:
 - **Belts**: pulleys of different sizes, closed-loop belts sold by tooth count, and buying in whole metres or fixed lengths are not handled. The cost is the exact length times the price. Belt mass is not added to the delivery weight.
-- **Members added by other means** (copy and paste, Draft arrays, scripts that do not use `make_profile` / `make_panel`) are only found when the carriage next recomputes for another reason.
+- **Other shapes**: only profiles and panels are found automatically. A Draft array of profiles, a bracket or a motor mount must be listed in Obstacles.
+- **Members inside the envelope cannot follow the carriage**: such a member is a dependency of the carriage, so an expression or attachment that makes it follow the carriage would be a cycle, and FreeCAD refuses it. What rides on the carriage has to sit outside the envelope, for example a gantry beam standing on it (touching counts as outside).
 - **Simplifications**: two carriages on one rail do not block each other. The envelope is always centred on the face, and one end stop length applies to both ends.
 - **Units**: the task panel shows lengths in mm, like the other simple panels, and the metre-ware block's length column is in mm, like the rest of the cut list (see international-units-and-formats.md).
 - **Reporting**: the frame check and the cut list do not list carriage warnings such as a short stroke.

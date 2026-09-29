@@ -19,10 +19,13 @@ of the open belt, which the cut list shows as metre ware (``metreware.py``).
 
 The carriage only reads the rail and the other members and never writes to
 them: the rail's length must not depend on the carriage, or there would be a
-dependency cycle. It links to the members it checks (``Neighbours``), so it
-recomputes after them when they change. New profiles and panels made by the
-workbench mark carriages for recompute (``touch_carriages``); a member added
-another way is found the next time the carriage recomputes.
+dependency cycle. It links only to the members whose bounding box reaches its
+envelope (``Neighbours``), so it recomputes after them when they change. The
+others are not dependencies: a broken member elsewhere does not stop the
+carriage, and a member outside the envelope, such as a gantry beam standing on
+the carriage, can follow it by an expression. A profile or panel that moves
+into the envelope marks the carriage for recompute (``member_moved``), and so
+does a new one (``touch_carriages``).
 """
 
 import html
@@ -61,29 +64,36 @@ def frame_placement(frame):
                                     0, 0, 0, 1))
 
 
+def miter_shift(rail, end, px, py, rect):
+    """How much longer a rail is at section point (px, py) than on its axis, at one end.
+
+    Negative where the miter cuts the rail short. See geometry.make_solid: the
+    cut turns about the section centre, and a positive miter makes the + side
+    of the section long.
+    """
+    angle = getattr(rail, f"Miter{end}").Value
+    if abs(angle) < 1e-9:
+        return 0.0
+    x0, x1, y0, y1 = rect
+    axis = getattr(rail, f"Miter{end}Axis", "") or rail.MiterAcross
+    offset = px - (x0 + x1) / 2 if axis == "X" else py - (y0 + y1) / 2
+    return offset * math.tan(math.radians(angle))
+
+
 def rail_extent(rail, frame, face, width):
     """(start, end) of the rail under the carriage, along the axis of its frame.
 
     Mitered ends make the face the carriage runs on shorter or longer than the
-    axis; the part of the face under the carriage decides.
+    axis: the outer face of a mitered frame is longer, the inner face shorter.
+    The carriage needs the face under its whole width, so the latest start and
+    the earliest end across that width decide.
     """
     s0 = (rail.Placement.Base - frame.origin).dot(frame.z)
     length = rail.Length.Value
-    x0, x1, y0, y1 = frame.rect
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    lo, hi = s0, s0 + length
+    lo, hi = -math.inf, math.inf
     for px, py in stroke.face_under(face, frame.rect, width):
-        for end in ("Start", "End"):
-            angle = getattr(rail, f"Miter{end}").Value
-            if abs(angle) < 1e-9:
-                continue
-            axis = getattr(rail, f"Miter{end}Axis", "") or rail.MiterAcross
-            # See geometry.make_solid: a positive miter makes the + side long.
-            shift = ((px - cx) if axis == "X" else (py - cy)) * math.tan(math.radians(angle))
-            if end == "Start":
-                lo = max(lo, s0 - shift)
-            else:
-                hi = min(hi, s0 + length + shift)
+        lo = max(lo, s0 - miter_shift(rail, "Start", px, py, frame.rect))
+        hi = min(hi, s0 + length + miter_shift(rail, "End", px, py, frame.rect))
     return lo, hi
 
 
@@ -103,21 +113,40 @@ def _local_box(frame, bb):
     return min(xs), max(xs), min(ys), max(ys), min(ss), max(ss)
 
 
+def _swept(env, lo, hi):
+    """The region a carriage sweeps, (x0, x1, y0, y1, s0, s1) in the rail's frame.
+
+    The envelope is shrunk by TOL, so a member that only touches it (one
+    butting against another face of the rail, or a gantry beam standing on
+    the carriage) does not block. A 1 mm slab beyond each rail end is
+    included, so a post the rail butts against is found as what limits the
+    run there.
+    """
+    return env[0] + TOL, env[1] - TOL, env[2] + TOL, env[3] - TOL, lo - 1.0, hi + 1.0
+
+
+def reaches(shape, frame, env, lo, hi):
+    """True when the bounding box of a shape reaches the carriage envelope swept from lo to hi.
+
+    Only such a shape can block the carriage (see blocked_interval).
+    """
+    if shape is None or shape.isNull():
+        return False
+    ex0, ex1, ey0, ey1, a, b = _swept(env, lo, hi)
+    bx0, bx1, by0, by1, bs0, bs1 = _local_box(frame, shape.BoundBox)
+    return bx0 < ex1 and ex0 < bx1 and by0 < ey1 and ey0 < by1 and bs0 < b and a < bs1
+
+
 def blocked_interval(shape, frame, env, lo, hi):
     """(s0, s1) where a shape enters the carriage envelope swept from lo to hi, or None.
 
-    The envelope is shrunk by TOL, so a member that only touches it (one
-    butting against another face of the rail) does not block. A 1 mm slab
-    beyond each rail end is included, so a post the rail butts against is
-    found as what limits the run there.
+    First a bounding box test in the rail's frame (``reaches``), then a
+    boolean with the envelope prism.
     """
-    if shape is None or shape.isNull():
+    if not reaches(shape, frame, env, lo, hi):
         return None
-    ex0, ex1, ey0, ey1 = env[0] + TOL, env[1] - TOL, env[2] + TOL, env[3] - TOL
-    a, b = lo - 1.0, hi + 1.0
-    bx0, bx1, by0, by1, bs0, bs1 = _local_box(frame, shape.BoundBox)
-    if not (bx0 < ex1 and ex0 < bx1 and by0 < ey1 and ey0 < by1 and bs0 < b and a < bs1):
-        return None
+    ex0, ex1, ey0, ey1, a, b = _swept(env, lo, hi)
+    bs0, bs1 = _local_box(frame, shape.BoundBox)[4:]
     if not shape.Solids:
         return max(bs0, a), min(bs1, b)  # nothing to intersect: use the box
     placement = frame_placement(frame)
@@ -134,14 +163,76 @@ def blocked_interval(shape, frame, env, lo, hi):
     return box.ZMin, box.ZMax
 
 
-def neighbours(obj):
-    """The profiles and panels that can block the carriage (all but its rail and what depends on it)."""
+def sweep(obj):
+    """(frame, env, lo, hi) of a carriage: its rail's frame, its envelope and the rail under it.
+
+    Raises ValueError when the rail's path edge is gone.
+    """
     rail = obj.Rail
-    skip = {o.Name for o in obj.InListRecursive} | {obj.Name}
-    if rail is not None:
-        skip.add(rail.Name)
+    frame = feature.member_frame(rail)
+    width = obj.EnvelopeWidth.Value
+    env = stroke.envelope(obj.Face, frame.rect, width, obj.EnvelopeHeight.Value, obj.Wrap.Value)
+    lo, hi = rail_extent(rail, frame, obj.Face, width)
+    return frame, env, lo, hi
+
+
+def is_member(obj):
+    return feature.is_profile(obj) or panels.is_panel(obj)
+
+
+def neighbours(obj, swept=None):
+    """The profiles and panels that can block the carriage: those whose bounding box reaches its envelope.
+
+    Only these are linked (``Neighbours``), so the carriage recomputes after
+    them. Linking every member would stop the carriage whenever any member in
+    the document has an error (FreeCAD skips an object when a dependency
+    failed), and no member could follow the carriage (a gantry beam placed by
+    an expression): that would be a dependency cycle. The rail and whatever
+    depends on the carriage are left out. A member that moves into the
+    envelope later marks the carriage for recompute (``member_moved``).
+    """
+    frame, env, lo, hi = swept or sweep(obj)
+    skip = {o.Name for o in obj.InListRecursive} | {obj.Name, obj.Rail.Name}
     return [o for o in obj.Document.Objects
-            if (feature.is_profile(o) or panels.is_panel(o)) and o.Name not in skip]
+            if is_member(o) and o.Name not in skip and reaches(o.Shape, frame, env, lo, hi)]
+
+
+def member_moved(member):
+    """Mark for recompute the carriages that a profile or panel may block now, but do not link yet.
+
+    Called from the member's onChanged when it gets a new Placement, which a
+    profile or panel also does at the end of each recompute, after its new
+    shape; the user moving a free profile counts too. A carriage that
+    links the member recomputes after it anyway. During a recompute, FreeCAD
+    recomputes a carriage that was touched after its turn in a second pass,
+    and the carriage then links the member.
+    """
+    doc = getattr(member, "Document", None)
+    shape = getattr(member, "Shape", None)
+    if doc is None or shape is None or shape.isNull():
+        return
+    carriages = [o for o in doc.Objects if is_carriage(o)]
+    if not carriages:
+        return
+    # onChanged runs before FreeCAD moves the shape to the new Placement, so move it here. For
+    # a rigid move, transformed() only sets a location and does not copy the geometry.
+    try:
+        shape = shape.transformed(member.Placement.multiply(shape.Placement.inverse()).toMatrix())
+    except Exception:  # noqa: BLE001
+        return
+    for car in carriages:
+        if "Neighbours" not in car.PropertiesList or car.Rail is None:
+            continue
+        try:
+            if car.Rail.Name == member.Name or any(o.Name == member.Name for o in car.Neighbours):
+                continue
+            if not reaches(shape, *sweep(car)):
+                continue
+            if car.Name in {o.Name for o in member.OutListRecursive}:
+                continue  # it follows the carriage, so it cannot block it
+            car.touch()
+        except Exception:  # noqa: BLE001  (a broken rail: the carriage reports it when it recomputes)
+            continue
 
 
 def obstacles(obj):
@@ -169,8 +260,9 @@ def face_at(rail, point):
 def touch_carriages(doc):
     """Mark the carriages of a document for recompute, so they check a member that was just added.
 
-    A carriage links to the members that exist when it recomputes; a new
-    profile or panel is only found by its next recompute.
+    A carriage links to the members that reach its envelope when it
+    recomputes. A new member has no shape yet; ``member_moved`` also catches
+    it once it has one, this makes sure the carriage looks again.
     """
     for obj in doc.Objects:
         if is_carriage(obj):
@@ -267,7 +359,8 @@ class Carriage:
         add("App::PropertyString", "Warning", "Info",
             "What is wrong, for example a stroke below RequiredStroke; empty when all is well", mode=1)
         add("App::PropertyLinkListGlobal", "Neighbours", "Info",
-            "Profiles and panels checked for the clear run, so the carriage recomputes when they change", mode=2)
+            "Profiles and panels that reach the carriage's envelope and are checked for the clear run, so the "
+            "carriage recomputes when they change", mode=2)
         # The tree description the carriage wrote last, so a user's own description is never replaced.
         add("App::PropertyString", "WrittenDescription", "Info", "Description written by the carriage", mode=2)
         obj.setPropertyStatus("WrittenDescription", "Output")
@@ -298,8 +391,10 @@ class Carriage:
         # Undo and Cancel write old values back; converting them would change what they restore.
         if feature.replaying(obj) or getattr(self, "_restoring", False):
             return
-        if prop == "PositionMode" and "Stroke" in obj.PropertiesList:
-            # Keep the carriage where it is when switching between percent and distance.
+        # Keep the carriage where it is when switching between percent and distance. A carriage
+        # that has not been computed yet (no shape) is nowhere, and its Stroke is not known, so
+        # a Position given before the mode (make_carriage keywords in any order) is kept.
+        if prop == "PositionMode" and "Stroke" in obj.PropertiesList and not obj.Shape.isNull():
             usable = obj.Stroke.Value
             if obj.PositionMode == "Distance":
                 obj.Position = stroke.travel("Percent", 0.0, obj.PositionPercent, usable)
@@ -318,13 +413,11 @@ class Carriage:
         if length <= 0 or width <= 0 or obj.EnvelopeHeight.Value + obj.Wrap.Value <= 0:
             raise ValueError(f"{obj.Label}: CarriageLength, EnvelopeWidth and EnvelopeHeight must be more than 0")
 
-        frame = feature.member_frame(rail)
-        env = stroke.envelope(obj.Face, frame.rect, width, obj.EnvelopeHeight.Value, obj.Wrap.Value)
-        lo, hi = rail_extent(rail, frame, obj.Face, width)
+        swept = frame, env, lo, hi = sweep(obj)
         if hi - lo <= TOL:
             raise ValueError(f"{obj.Label}: the miters of {rail.Label} leave no {obj.Face.lower()} face to run on")
 
-        found = neighbours(obj)
+        found = neighbours(obj, swept)
         if [o.Name for o in obj.Neighbours] != [o.Name for o in found]:
             obj.Neighbours = found
         blocked = []
@@ -512,7 +605,10 @@ def make_carriage(doc, rail, face="Top", body=None, **props):
     for name, value in props.items():
         setattr(obj, name, value)
     # Link the members before the first recompute, so they are computed first.
-    obj.Neighbours = neighbours(obj)
+    try:
+        obj.Neighbours = neighbours(obj)
+    except ValueError:
+        pass  # a broken rail: the carriage reports it when it recomputes
     if App.GuiUp:
         ViewProviderCarriage(obj.ViewObject)
         # The body is shown through the carriage (set before the view provider existed).
