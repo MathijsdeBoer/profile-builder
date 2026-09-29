@@ -5,6 +5,7 @@ import FreeCADGui as Gui
 from PySide import QtCore, QtWidgets
 
 from . import cutlist, feature, panels, pricing
+from . import linear  # carriages with belts (metre ware)
 
 
 def _spin(value, maximum=1e6, decimals=2, suffix=""):
@@ -99,6 +100,11 @@ class PricingTaskPanel:
         layout.addWidget(QtWidgets.QLabel("Sheets"))
         self.sheet_table = _table(["Sheet", "Price / m²"])
         layout.addWidget(self.sheet_table)
+        # Belts and other metre ware; only shown when the document has some.
+        self.metre_label = QtWidgets.QLabel("Metre ware, such as belts (price per metre, or e.g. 0.75/ft)")
+        layout.addWidget(self.metre_label)
+        self.metre_table = _table(["Item", "Price"])
+        layout.addWidget(self.metre_table)
         buttons = QtWidgets.QHBoxLayout()
         save = QtWidgets.QPushButton("Save as my defaults")
         save.setToolTip(f"New documents start from these values ({pricing.defaults_path()})")
@@ -121,6 +127,7 @@ class PricingTaskPanel:
         self.currency.editingFinished.connect(self.changed)
         self.profile_table.itemChanged.connect(self.changed)
         self.sheet_table.itemChanged.connect(self.changed)
+        self.metre_table.itemChanged.connect(self.changed)
         self._update_estimate()
 
     def _fill_tables(self):
@@ -131,6 +138,11 @@ class PricingTaskPanel:
         sheets = sorted({panels.sheet_key(o) for o in self.doc.Objects if panels.is_panel(o)})
         extra = sorted(set(s.SheetPrices) - set(sheets))
         _set_rows(self.sheet_table, sheets + extra, [s.SheetPrices])
+        items = sorted({o.BeltItem for o in self.doc.Objects if linear.is_carriage(o) and getattr(o, "BeltItem", "")})
+        items += sorted(set(s.MetrePrices) - set(items))
+        _set_rows(self.metre_table, items, [s.MetrePrices])
+        self.metre_label.setVisible(bool(items))
+        self.metre_table.setVisible(bool(items))
 
     def changed(self, *_args):
         self._timer.start()
@@ -150,6 +162,7 @@ class PricingTaskPanel:
             "ProfilePrices": _read_column(self.profile_table, 1),
             "StockLengths": _read_column(self.profile_table, 2),
             "SheetPrices": _read_column(self.sheet_table, 1),
+            "MetrePrices": _read_column(self.metre_table, 1),
         }
 
     def apply(self):

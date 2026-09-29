@@ -99,6 +99,14 @@ check("see Warning" in car.Label2, f"the tree description points at the warning 
 car.RequiredStroke = 480
 doc.recompute()
 check(car.Warning == "", "warning gone when the requirement is met")
+check(car.Label2 == f"Stroke {linear.length_text(485)}", f"description follows the stroke ({car.Label2})")
+car.Label2 = "Stroke limited by the motor mount"  # the user's own text, which looks like ours
+car.EndStopLength = 6
+doc.recompute()
+check(car.Label2 == "Stroke limited by the motor mount", "a user's own description is kept")
+car.Label2 = ""
+car.EndStopLength = 5
+doc.recompute()
 
 # Distance mode keeps the carriage where it was, and warns beyond the stroke.
 before = box_of(car)
@@ -325,5 +333,94 @@ try:
     App.closeDocument(doc.Name)
 except ImportError as e:
     check(False, f"panel test could not run: {e}")
+
+# ---- belt drive and metre ware in the cut list ------------------------------------
+
+from freecad.profile_builder import cutlist, pricing  # noqa: E402
+
+doc = App.newDocument("carriage_belt")
+_lines, posts, rail = post_frame(doc)
+car = linear.make_carriage(doc, rail, "Top", CarriageLength=60, EndStopLength=5)
+doc.recompute()
+report = cutlist.build_report(doc)
+check(car.BeltLength.Value == 0 and not report.metre and "Metre ware" not in dict(report.summary),
+      "no belt: no metre ware and no extra cost line")
+car.BeltItem = "GT2 6 mm"
+doc.recompute()
+check(not car.isValid() and "PulleyTeeth and BeltPitch" in car.getStatusString(),
+      f"a belt without a pulley size is an error ({car.getStatusString()})")
+report = cutlist.build_report(doc)
+check(any(car.Label in e and "GT2 6 mm" in e for e in report.errors)
+      and report.summary[-1][0].startswith("Total, incomplete"),
+      f"... and the cut list says its belt is missing ({report.errors})")
+car.BeltPitch = 2
+car.PulleyTeeth = 20
+car.ClampAllowance = 50
+doc.recompute()
+check(car.isValid() and near(car.BeltLength.Value, 2 * 560 + 40 + 50),
+      f"belt over pulleys at the run ends: 2 x 560 + 20 teeth x 2 + 50 ({car.BeltLength})")
+car.PulleyCentres = 600
+car.ClampAllowance = 49
+doc.recompute()
+check(near(car.BeltLength.Value, 1290), f"rounded up to whole teeth: 1290 ({car.BeltLength})")
+check("645 teeth" in linear.carriage_info(car), "tooth count in the dialog")
+under = linear.make_carriage(doc, rail, "Bottom", CarriageLength=60, BeltItem="GT2 6 mm", BeltPitch=2,
+                             PulleyTeeth=20, PulleyCentres=600, ClampAllowance=49)
+doc.recompute()
+settings = pricing.get_settings(doc, create=True)
+settings.MetrePrices = {"GT2 6 mm": "0.75/ft"}
+report = cutlist.build_report(doc)
+M = cutlist.metreware.HEADER
+check(len(report.metre) == 1 and report.metre[0][M.index("Qty")] == 2
+      and report.metre[0][M.index("Length each (mm)")] == 1290.0 and report.metre[0][M.index("Per")] == "ft",
+      f"two identical belts share a row ({report.metre})")
+expected = 2 * 1.290 / 0.3048 * 0.75
+costs = dict(report.summary)
+check(near(costs["Metre ware"], round(expected, 2), 1e-9) and near(report.metre[0][M.index("Cost")], round(expected, 2)),
+      f"priced per foot: {costs['Metre ware']} ({expected:.4f})")
+check(abs(report.total - sum(v for _k, v in report.summary[:-2]) * (1 + settings.TaxPercent / 100)) < 0.02,
+      "metre ware counts in the total")
+check(not report.errors and not any("GT2" in w for w in report.warnings),
+      f"no errors or missing belt prices ({report.warnings})")
+csv_path = os.path.join(tempfile.gettempdir(), "pb_carriage_cutlist.csv")
+cutlist.write_csv(report, csv_path, delimiter=";", decimal=",")
+text = open(csv_path, encoding="utf-8-sig").read()
+check("Metre ware" in text and "Qty;Item;Length each (mm);Price;Per;Cost;Used by" in text and ";0,75;ft;" in text,
+      "metre-ware block in the CSV, with a decimal comma")
+sheet = cutlist.write_spreadsheet(doc, report)
+check(sheet.isValid(), "metre ware in the spreadsheet")
+settings.MetrePrices = {}
+report = cutlist.build_report(doc)
+check("No price for GT2 6 mm" in report.warnings and report.metre[0][M.index("Price")] == "",
+      "missing belt price reported")
+
+# The pricing dialog lists the belt, and a typed price is stored.
+try:
+    from PySide import QtWidgets  # noqa: E402
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from freecad.profile_builder import pricing_ui  # noqa: E402
+    doc.UndoMode = 1
+    dialog = pricing_ui.PricingTaskPanel(doc)
+    table = dialog.metre_table
+    check(table.rowCount() == 1 and table.item(0, 0).text() == "GT2 6 mm" and not table.isHidden(),
+          "pricing dialog: belt listed under metre ware")
+    table.item(0, 1).setText("2,50")
+    dialog.apply()
+    check(settings.MetrePrices.get("GT2 6 mm") == "2,50" and "Metre ware" in dialog.estimate.text(),
+          f"pricing dialog: price stored and in the estimate ({dict(settings.MetrePrices)})")
+    doc.abortTransaction()
+except ImportError as e:
+    check(False, f"pricing dialog test could not run: {e}")
+
+# Save and reload keeps the belt.
+path = os.path.join(tempfile.gettempdir(), "pb_carriage_belt.FCStd")
+doc.saveAs(path)
+App.closeDocument(doc.Name)
+doc = App.openDocument(path)
+car = [o for o in doc.Objects if linear.is_carriage(o)][0]
+car.touch()
+doc.recompute()
+check(car.isValid() and near(car.BeltLength.Value, 1290) and car.PulleyTeeth == 20, "belt survives reload")
+App.closeDocument(doc.Name)
 
 print("\n%d failure(s)" % len(failures))

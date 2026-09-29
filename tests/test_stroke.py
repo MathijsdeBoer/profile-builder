@@ -104,3 +104,19 @@ def test_problems():
     before = stroke.problems(run, 60, 5, 0, "Distance", -1)
     assert len(before) == 1 and "run into Post A" in before[0]
     assert stroke.problems(run, 60, 5, 0, "Distance", 490) == []
+
+
+def test_pitch_diameter_of_a_toothed_pulley():
+    assert abs(stroke.pitch_diameter(20, 2) - 12.732) < 1e-3  # 20 teeth GT2
+    assert stroke.pitch_diameter(0, 2) == 0 and stroke.pitch_diameter(20, 0) == 0
+
+
+def test_open_belt_length():
+    # 2 x 600 + pi x d, where pi x d is 20 teeth x 2 mm, plus 50 for the clamps.
+    d = stroke.pitch_diameter(20, 2)
+    assert abs(stroke.belt_length(600, d, 50) - 1290) < 1e-9
+    # Rounded up to whole teeth, but an exact length stays.
+    assert stroke.belt_length(600, d, 49, pitch=2) == 1290
+    assert stroke.belt_length(600, d, 50, pitch=2) == 1290
+    # Inch belts: XL has a 0.2 in (5.08 mm) pitch.
+    assert abs(stroke.belt_length(500, 0, 0, pitch=5.08) - 197 * 5.08) < 1e-9

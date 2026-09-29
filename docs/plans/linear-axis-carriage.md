@@ -10,7 +10,7 @@
 
 ## Status
 
-First stage done (2026-09-29), in the new modules `linear.py` (document object), `stroke.py` (pure-Python rules) and `linear_ui.py` (command and task panel):
+The proposal is built (2026-09-29), with the gaps listed at the end. The code is in the new modules `linear.py` (document object), `stroke.py` (pure-Python rules), `metreware.py` (metre ware in the cut list) and `linear_ui.py` (command and task panel):
 
 - **Carriage object** linked to a rail profile and one of its faces (Top/Bottom/Left/Right as on the section). It has CarriageLength, EnvelopeWidth, EnvelopeHeight, Wrap (how far it reaches back around the rail's sides), EndStopLength, RequiredStroke, Run, and a position given in percent of the stroke or as a distance. Expressions work on the position, for simple motion checks.
 - **Clear run from what really blocks the envelope**, as corrected below:
@@ -20,21 +20,31 @@ First stage done (2026-09-29), in the new modules `linear.py` (document object),
 - **Outputs**: ClearRun, Stroke, Travel, Limits (what ends the run), Runs (all runs) and Warning. Warning covers a stroke below RequiredStroke, a carriage that does not fit, and a position outside the stroke. Warnings also go to the report view, and the tree's description shows the stroke. Lengths are formatted in the user's unit system.
 - **No cycles**: the carriage links to the rail and, through a Neighbours list (global-scope links, hidden in the property editor), to the other profiles and panels. It therefore recomputes after them, for example when the posts change from 40 to 45, and it never writes to them. New profiles and panels made by the workbench mark carriages for recompute, so they are found at once.
 - **Shape**: a placeholder box, or the shape of a linked Body (for example an imported STEP) in carriage coordinates, adjusted with BodyPlacement.
+- **Belt drive**:
+  - With BeltItem set (for example "GT2 6 mm"), the carriage gives BeltLength = 2 × PulleyCentres + π × pitch diameter + ClampAllowance, rounded up to whole teeth of BeltPitch.
+  - PulleyCentres 0 means the clear run, and the pitch diameter comes from PulleyDiameter or from PulleyTeeth × BeltPitch / π.
+  - A belt without a pulley size is an error, so the cut list never lists a belt of the wrong length.
+- **Metre ware in the cut list**:
+  - Belts get their own "Metre ware" block (Qty, Item, Length each, Price, Per, Cost, Used by), grouped by item and length, and a "Metre ware" cost line that only appears when there is some.
+  - Prices are stored in a new MetrePrices map of the Pricing object, edited in the Pricing dialog. A price is per metre, or has a unit: "0.75/ft", "0.10/in", "1.20/yd", with a decimal point or comma.
+  - A carriage with a belt and an error is listed under Attention, and the total is marked incomplete.
 - **GUI**: a Carriage command (click the face it runs on; a selected solid becomes the Body) and a task panel with live preview, which shows the position in percent or as a distance.
-- **Tests**: `tests/test_stroke.py` covers the rules. `tests/freecad_linear.py` covers:
+- **Tests**: `tests/test_stroke.py` covers the rules and the belt formula, and `tests/test_metreware.py` the price parsing. `tests/freecad_linear.py` covers:
   - a rail between two posts, including 40 to 45 mm posts;
   - T-junctions on the carriage face, on another face, and with wrap;
   - a through rail on posts, and a mitered ring;
   - an obstacle, a panel in the slot and a linked body;
-  - save and reload, undo, and the task panel.
+  - save and reload, undo, the carriage task panel and a user's own description;
+  - belts in the cut list, the CSV and the spreadsheet, prices per foot, a missing price, a missing pulley size, and the Pricing dialog.
 
 Not done yet:
-- **Belt drive**: pulley pitch diameter, clamp allowance and belt length, and a metre-ware block in the cut list priced per metre or per foot.
+- **Belts**: pulleys of different sizes, closed-loop belts sold by tooth count, and buying in whole metres or fixed lengths are not handled. The cost is the exact length times the price. Belt mass is not added to the delivery weight.
 - **Members added by other means** (copy and paste, Draft arrays, scripts that do not use `make_profile` / `make_panel`) are only found when the carriage next recomputes for another reason.
 - **Simplifications**: two carriages on one rail do not block each other. The envelope is always centred on the face, and one end stop length applies to both ends.
-- **Units in the task panel**: it shows lengths in mm, like the other simple panels (see international-units-and-formats.md).
-- **Reporting**: the frame check and the cut list do not list carriage warnings.
-- **GUI testing**: the command, face picking and the task panel inside FreeCAD's GUI were not run. The task panel logic is tested headless.
+- **Units**: the task panel shows lengths in mm, like the other simple panels, and the metre-ware block's length column is in mm, like the rest of the cut list (see international-units-and-formats.md).
+- **Reporting**: the frame check and the cut list do not list carriage warnings such as a short stroke.
+- **Link**: the body is shown by copying its shape into the carriage (like a Draft clone), not through an App::Link.
+- **GUI testing**: the command, face picking and both dialogs inside FreeCAD's GUI were not run. The dialog logic is tested headless.
 
 ## Problem
 

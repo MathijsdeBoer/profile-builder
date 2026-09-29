@@ -11,8 +11,10 @@ from .feature import ICON_DIR
 from .simple_panel import PropertyTaskPanel
 
 FIELDS = ("Face", "CarriageLength", "EnvelopeWidth", "EnvelopeHeight", "Wrap", "EndStopLength",
-          "RequiredStroke", "Run", "PositionMode", "PositionPercent", "Position")
+          "RequiredStroke", "Run", "PositionMode", "PositionPercent", "Position",
+          "BeltItem", "BeltPitch", "PulleyTeeth", "PulleyDiameter", "PulleyCentres", "ClampAllowance")
 INTEGER_KINDS = ("App::PropertyInteger", "App::PropertyIntegerConstraint")
+INTEGER_MAX = {"Run": 99, "PulleyTeeth": 1000}
 
 
 class CarriageTaskPanel(PropertyTaskPanel):
@@ -41,7 +43,7 @@ class CarriageTaskPanel(PropertyTaskPanel):
     def _widget(self, name):
         if self.obj.getTypeIdOfProperty(name) in INTEGER_KINDS:
             w = QtWidgets.QSpinBox()
-            w.setRange(0, 99)
+            w.setRange(0, INTEGER_MAX.get(name, 999999))
             w.setValue(getattr(self.obj, name))
             w.setKeyboardTracking(False)
             w.valueChanged.connect(self.changed)

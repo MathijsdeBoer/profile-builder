@@ -6,6 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from . import feature, joints, panels, pricing, stock
+from . import metreware  # belts and other material bought by length
 from .pieces import canonical_cuts, letters, upright
 
 PIECE_HEADER = ("Mark", "Qty", "Product", "Length (mm)", "Saw length (mm)", "Miter start (°)",
@@ -22,6 +23,7 @@ class Report:
     pieces: list = field(default_factory=list)  # rows matching PIECE_HEADER
     stock: list = field(default_factory=list)  # rows matching STOCK_HEADER
     sheets: list = field(default_factory=list)  # rows matching SHEET_HEADER
+    metre: list = field(default_factory=list)  # rows matching metreware.HEADER
     summary: list = field(default_factory=list)  # (label, value)
     warnings: list = field(default_factory=list)
     errors: list = field(default_factory=list)  # objects left out because they have an error
@@ -211,7 +213,11 @@ def build_report(doc):
         report.sheets.append((qty, key, width, height, round(area, 4), "" if price is None else price,
                               _money(cost)))
 
-    goods = material + cutting + sheet_cost
+    report.metre, metre_cost, metre_missing, metre_errors = metreware.report(doc, s.get("MetrePrices"))
+    report.errors += metre_errors
+    missing |= metre_missing
+
+    goods = material + cutting + sheet_cost + metre_cost
     free = s["FreeDeliveryAbove"] > 0 and goods >= s["FreeDeliveryAbove"]
     delivery = 0.0 if free or goods == 0 else s["DeliveryFlat"] + s["DeliveryPerKg"] * mass
     subtotal = goods + delivery
@@ -220,6 +226,7 @@ def build_report(doc):
         ("Profiles", _money(material)),
         ("Cutting", _money(cutting)),
         ("Sheets", _money(sheet_cost)),
+        *([("Metre ware", _money(metre_cost))] if report.metre else []),
         (f"Delivery ({mass:.1f} kg)" + (", free" if free else ""), _money(delivery)),
         (f"Tax {s['TaxPercent']:g}%", _money(tax)),
         ("Total, incomplete: see Attention" if report.errors else "Total", _money(subtotal + tax)),
@@ -241,6 +248,8 @@ def _blocks(report):
         blocks.append((f"Stock plan ({len(report.stock)} bars)", STOCK_HEADER, report.stock))
     if report.sheets:
         blocks.append(("Sheets", SHEET_HEADER, report.sheets))
+    if report.metre:
+        blocks.append(("Metre ware", metreware.HEADER, report.metre))
     blocks.append((f"Costs ({report.mode}, {report.currency})", ("Item", "Amount"),
                    [list(r) for r in report.summary]))
     if report.warnings:

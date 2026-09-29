@@ -1,4 +1,4 @@
-"""Clear run, stroke and position of a carriage on a rail (pure Python, no FreeCAD).
+"""Clear run, stroke, position and belt length of a carriage on a rail (pure Python, no FreeCAD).
 
 Everything is measured in the rail's local frame (see ``feature.Frame``):
 ``x`` and ``y`` across the section, ``s`` along the rail axis. The carriage is
@@ -13,6 +13,7 @@ and uses these functions for the rest, so the rules can be tested without
 FreeCAD.
 """
 
+import math
 from dataclasses import dataclass
 
 POSITION_MODES = ("Percent", "Distance")
@@ -174,3 +175,22 @@ def problems(run, carriage_length, end_stop, required, mode, moved, fmt=None, na
         found.append(f"Position {fmt(moved)} is outside the stroke (0 to {fmt(usable)}): "
                      f"the carriage would run into {limit}")
     return found
+
+
+def pitch_diameter(teeth, pitch):
+    """Pitch diameter of a toothed pulley: teeth x pitch / pi (0 when either is unknown)."""
+    return teeth * pitch / math.pi if teeth > 0 and pitch > 0 else 0.0
+
+
+def belt_length(centres, pulley_diameter, allowance=0.0, pitch=0.0):
+    """Length of an open belt over two equal pulleys, with both ends clamped to the carriage.
+
+    The belt goes round both pulleys: 2 x centre distance + pi x pitch
+    diameter. ``allowance`` is what the clamps add (the ends held in them)
+    or take away (a gap between the clamps). With a tooth ``pitch`` the length
+    is rounded up to whole teeth.
+    """
+    length = 2 * centres + math.pi * pulley_diameter + allowance
+    if pitch > 0:
+        length = math.ceil(length / pitch - 1e-9) * pitch
+    return length

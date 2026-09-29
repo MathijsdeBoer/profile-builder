@@ -14,17 +14,20 @@ splits the rail into runs. The stroke is the run minus the carriage and an
 end stop at each end, and a warning is given when it is below
 ``RequiredStroke``. The rules are in ``stroke.py``.
 
+An optional belt drive (``BeltItem`` and the pulley sizes) gives the length
+of the open belt, which the cut list shows as metre ware (``metreware.py``).
+
 The carriage only reads the rail and the other members and never writes to
 them: the rail's length must not depend on the carriage, or there would be a
 dependency cycle. It links to the members it checks (``Neighbours``), so it
-recomputes after them when they change. A member added later is taken into
-account the next time the carriage recomputes.
+recomputes after them when they change. New profiles and panels made by the
+workbench mark carriages for recompute (``touch_carriages``); a member added
+another way is found the next time the carriage recomputes.
 """
 
 import html
 import math
 import os
-import re
 
 import FreeCAD as App
 import Part
@@ -34,7 +37,6 @@ from . import feature, panels, profiles, stroke
 V = App.Vector
 
 TOL = 0.01  # mm: a member this close to the envelope only touches it
-DESCRIPTION = re.compile(r"Stroke .*")  # the tree Description that execute writes
 PLACEHOLDER_COLOR = (0.90, 0.70, 0.25)
 
 
@@ -235,6 +237,22 @@ class Carriage:
             "Travel from the start of the stroke (0: against the end stop at the start of the run). "
             "Drive it with an expression for simple motion checks.", 0.0)
 
+        add("App::PropertyString", "BeltItem", "Belt",
+            "Belt that drives the carriage, as you order it, e.g. 'GT2 6 mm' or 'HTD 5M 15 mm'. It is listed "
+            "as metre ware in the cut list. Empty: no belt.", "")
+        add("App::PropertyLength", "BeltPitch", "Belt",
+            "Tooth pitch of the belt (2 mm for GT2, 5 mm for HTD 5M or T5, 5.08 mm for XL); the belt length is "
+            "rounded up to whole teeth. 0: no rounding.", 0.0)
+        add("App::PropertyIntegerConstraint", "PulleyTeeth", "Belt",
+            "Teeth of each of the two equal pulleys; with BeltPitch it gives their pitch diameter", (0, 0, 1000, 1))
+        add("App::PropertyLength", "PulleyDiameter", "Belt",
+            "Pitch diameter of the two equal pulleys (0: PulleyTeeth x BeltPitch / pi)", 0.0)
+        add("App::PropertyLength", "PulleyCentres", "Belt",
+            "Distance between the pulley axes (0: the clear run, with the pulleys at the ends of the run)", 0.0)
+        add("App::PropertyDistance", "ClampAllowance", "Belt",
+            "Belt added for the clamps on the carriage, such as the ends held in them; negative for a gap "
+            "between the clamps that the belt does not span", 0.0)
+
         add("App::PropertyLength", "ClearRun", "Info",
             "Free length of the run, between the members that block the carriage or the rail ends", mode=1)
         add("App::PropertyDistance", "Stroke", "Info",
@@ -243,10 +261,16 @@ class Carriage:
         add("App::PropertyString", "Limits", "Info", "What limits the run at each end", mode=1)
         add("App::PropertyStringList", "Runs", "Info",
             "The free runs of the rail for this envelope, measured from the rail start", mode=1)
+        add("App::PropertyLength", "BeltLength", "Info",
+            "Length of the open belt: 2 x PulleyCentres + pi x PulleyDiameter + ClampAllowance, "
+            "rounded up to whole teeth (0: no belt)", mode=1)
         add("App::PropertyString", "Warning", "Info",
             "What is wrong, for example a stroke below RequiredStroke; empty when all is well", mode=1)
         add("App::PropertyLinkListGlobal", "Neighbours", "Info",
             "Profiles and panels checked for the clear run, so the carriage recomputes when they change", mode=2)
+        # The tree description the carriage wrote last, so a user's own description is never replaced.
+        add("App::PropertyString", "WrittenDescription", "Info", "Description written by the carriage", mode=2)
+        obj.setPropertyStatus("WrittenDescription", "Output")
 
     def onDocumentRestored(self, obj):
         self._restoring = True
@@ -254,6 +278,7 @@ class Carriage:
             self.add_properties(obj)
             # The limits of constrained properties are not saved with the document.
             obj.Run = (min(99, max(0, obj.Run)), 0, 99, 1)
+            obj.PulleyTeeth = (min(1000, max(0, obj.PulleyTeeth)), 0, 1000, 1)
             obj.PositionPercent = (min(100.0, max(0.0, obj.PositionPercent)), 0.0, 100.0, 1.0)
         finally:
             self._restoring = False
@@ -317,6 +342,15 @@ class Carriage:
             return by if by is not None else f"the {end} of {rail.Label}"
 
         run, message = stroke.pick_run(runs, obj.Run)
+        belt = 0.0
+        if obj.BeltItem:
+            diameter = obj.PulleyDiameter.Value or stroke.pitch_diameter(obj.PulleyTeeth, obj.BeltPitch.Value)
+            if diameter <= 0:
+                # An error rather than a warning: the cut list would otherwise list a belt of the wrong length.
+                raise ValueError(f"{obj.Label}: set PulleyDiameter, or PulleyTeeth and BeltPitch, "
+                                 f"to get the length of the {obj.BeltItem} belt")
+            belt = stroke.belt_length(obj.PulleyCentres.Value or run.length, diameter,
+                                      obj.ClampAllowance.Value, obj.BeltPitch.Value)
         usable = stroke.stroke(run.length, length, stop)
         moved = stroke.travel(obj.PositionMode, obj.Position.Value, obj.PositionPercent, usable)
         s = stroke.centre(run, length, stop, moved)
@@ -334,16 +368,19 @@ class Carriage:
         obj.ClearRun = run.length
         obj.Stroke = usable
         obj.Travel = moved
+        obj.BeltLength = belt
         obj.Limits = f"{name(run.start_by, 'start')} to {name(run.end_by, 'end')}"
         if list(obj.Runs) != texts:
             obj.Runs = texts
         if obj.Warning != warning:
             obj.Warning = warning
         # A short summary in the tree, unless the user wrote a description of their own.
-        if obj.Label2 == "" or DESCRIPTION.fullmatch(obj.Label2):
+        if obj.Label2 in ("", obj.WrittenDescription):
             text = f"Stroke {length_text(usable)}" + (" (see Warning)" if warning else "")
             if obj.Label2 != text:
                 obj.Label2 = text
+            if obj.WrittenDescription != text:
+                obj.WrittenDescription = text
 
         (px, py), _w = stroke.face_point(obj.Face, frame.rect)
         (tx, ty), (nx, ny) = stroke.FACE_AXES[obj.Face]
@@ -445,6 +482,11 @@ def carriage_info(obj):
     lines.append(f"On the {obj.Face.lower()} face of {html.escape(obj.Rail.Label)}")
     if len(obj.Runs) > 1:
         lines.append("Members split the rail into runs:<br>" + "<br>".join(html.escape(r) for r in obj.Runs))
+    if obj.BeltItem and obj.BeltLength.Value > 0:
+        text = f"Belt {obj.BeltItem}: {length_text(obj.BeltLength.Value)}"
+        if obj.BeltPitch.Value > 0:
+            text += f", {round(obj.BeltLength.Value / obj.BeltPitch.Value)} teeth"
+        lines.append(html.escape(text))
     if obj.Warning:
         lines.append(f"<span style='color:#c60'>{html.escape(obj.Warning)}</span>")
     elif required > 0:
