@@ -2,11 +2,64 @@
 
 | | |
 |---|---|
-| Status | Planned |
+| Status | Partly done |
 | Category | Joints & assembly |
 | Effort | L (first estimate L) |
 | Value | medium |
 | Proposed from | printer-builder |
+
+## Status
+
+The first stage is done (branch `feature/brackets`). The object is called Brackets
+(`ProfileBuilder::Brackets` in `brackets.py`, commands in `brackets_ui.py`), not Fitting: that name is
+kept for the feet and castors of [end fittings](end-fittings.md).
+
+Done:
+- **Brackets object**: an App::LinkPython link array whose LinkedObject is the user's part. `execute`
+  writes ElementCount and PlacementList only (ShowElement stays off, so no objects are created during
+  recompute). The STEP colours are kept and no geometry is copied. With no positions it keeps one hidden
+  element, because a link array without elements would show the part once at the origin.
+- **Links, acyclic**: `Joints` plus a hidden `Members` list of the profiles at those joints, updated in
+  `execute`. Profiles and joints never link to it. `AllJoints` (set when the command is run without
+  selecting joints) follows every joint in the document, also ones made later, through `mustExecute`.
+- **Placement**, at butt joints with square members:
+  - between a profile ending at the joint and the one running through, on the side where that one
+    continues (one side at a corner, both at a T-junction);
+  - between two profiles ending square to each other against the same profile, if both ends reach the
+    other's face. With 3030 posts and 2020 rails they do not, so that corner gets none.
+  - One bracket per slot that lines up on both contact faces (within 0.5 mm). Closed faces get none;
+    misaligned slots (a flat 2040 rail on a 2020 post) get a note.
+  - `Rule`: "Inner faces" skips the side of a T-junction that faces away from the middle of the frame
+    (the length-weighted centre of the members' path edges); "All open faces" places both.
+- **Calibration** (`brackets.calibrate`, command **Calibrate bracket**, and **Brackets...** itself): the
+  user picks the two contact faces, first the one on the profile that ends at the joint. The origin
+  goes on the line where their planes meet, in the middle of the whole part's width, so a key split
+  face or a chamfered corner does not matter. The corner vertex is optional and only checked. Picks
+  work on a Part feature, through an App::Part (as STEP imports are) and plain groups, and on a placed
+  bracket. Picking the inner faces of the L is refused.
+- `SwapLegs` and `SlotOffset` (along the bracket's width) adjust the frame.
+- **Cut list**: a "Hardware (counted, not priced)" block with quantity, item (the part's label or a
+  typed `Item`) and a typed `ArticleNumber`. A broken Brackets object is listed under Attention and not
+  counted; its notes go to Notes.
+- **Tests**: `tests/freecad_brackets.py`. The 400 mm 2020 cube gets 24 inner brackets, each touching
+  exactly its two profiles, with no overlap between brackets and profiles or between brackets. The test
+  bracket has slot keys, so a bracket off the slot centre would hit the lips. It also covers joint
+  swaps, SwapLegs, SlotOffset, size changes, stretched sketches, save/reopen, undo, rules at
+  T-junctions, closed faces, misaligned slots, miter joints, a missing part, AllJoints and the command
+  flow (with a stand-in for the GUI selection).
+
+Not done yet:
+- Miter corners (noted in the object's Notes), angled butt joints and brackets across the width of a
+  wider through profile (e.g. two brackets on a 2040 post's wide face for one 2020 rail).
+- Pricing and pack sizes of hardware, and hardware mass in the delivery weight: see
+  [hardware BOM](hardware-bom.md), which should extend the Hardware block.
+- Clash checks (bracket against panel, door or other bracket): see [frame check](frame-check.md). The
+  brackets have a real shape (`Part.getShape(obj)`) for it.
+- The "towards the panel side" variant of the inner rule, and a "Top and bottom" rule.
+- A preview in the calibration step, and GUI testing of the two commands and the task panel (the
+  commands were only run headless with a stand-in selection).
+- More than one bracket part per Brackets object (for example different brackets for the 20 and 30
+  series corners of one frame); for now, use one Brackets object per part with selected joints.
 
 ## Problem
 
@@ -53,7 +106,7 @@ The FreeCAD Fasteners workbench auto-places library screws on holes, a similar p
 
 ## Modules
 
-- new freecad/profile_builder/fittings.py
+- new freecad/profile_builder/brackets.py (was planned as fittings.py) and brackets_ui.py
 - `joints.py (read-only ends_of / through_member)`
 - `feature.py (member_frame)`
 - `cutlist.py`

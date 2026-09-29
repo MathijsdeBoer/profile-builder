@@ -265,7 +265,8 @@ after = [shape.BoundBox for shape in placed()]
 wrong, overlap, clash = fit_report(cube)
 check(br.Count == 24 and any(abs(a.XLength - b.XLength) > 1 for a, b in zip(before, after)),
       "swap legs turns the brackets")
-check(not wrong and overlap < 1e-3 and clash < 1e-3, f"swap legs: still touching, no overlap ({wrong[:2]}, {overlap:.4f})")
+check(not wrong and overlap < 1e-3 and clash < 1e-3,
+      f"swap legs: still touching, no overlap ({wrong[:2]}, {overlap:.4f})")
 br.SwapLegs = False
 
 # A slot offset moves the keys out of the slots, so they hit the lips.
@@ -382,7 +383,8 @@ doc.recompute()
 # brackets there, and a note says why.
 goal[2].Columns = 2
 doc.recompute()
-check(gb.Count == 0 and any("do not line up" in n for n in gb.Notes), f"flat 2040 rail: slots do not line up ({gb.Notes})")
+check(gb.Count == 0 and any("do not line up" in n for n in gb.Notes),
+      f"flat 2040 rail: slots do not line up ({gb.Notes})")
 # Standing on edge, its top and bottom faces have one slot each, in line with the posts'.
 goal[2].Columns, goal[2].Rows = 1, 2
 doc.recompute()
@@ -390,6 +392,20 @@ wrong, overlap, clash = fit_report(goal)
 heights = sorted({round(pl.Base.z, 3) for pl in gb.PlacementList})
 check(gb.Count == 4 and not wrong and overlap < 1e-3 and heights == [380.0, 420.0],
       f"2040 rail on edge: brackets at its top and bottom faces ({gb.Count}, {heights})")
+
+# With AllJoints, a joint made later gets brackets too: a middle post under the rail.
+gb.AllJoints = True
+doc.recompute()
+middle_line = lines_object("Middle", [((200, 0, 0), (200, 0, 400))])
+doc.recompute()
+middle = feature.make_profile("20-6", 1, 1, 100, doc, edge=(middle_line, "Edge1"))
+doc.recompute()
+new_joints = joints.create_joints(doc, goal + [middle], "Butt", "Vertical")
+doc.recompute()
+wrong, overlap, clash = fit_report(goal + [middle])
+check(len(new_joints) == 1 and new_joints[0] in gb.Joints and gb.Count == 6 and middle in gb.Members,
+      f"all joints: the new T-junction gets a bracket on each side ({gb.Count})")
+check(not wrong and overlap < 1e-3 and clash < 1e-3, f"all joints: the new brackets fit ({wrong[:2]}, {overlap:.4f})")
 
 # ---- miter corners get no brackets yet, and say so -----------------------------------------
 
@@ -405,7 +421,8 @@ part = doc.addObject("Part::Feature", "Bracket")
 part.Shape = L
 mb = brackets.make_brackets(doc, part, ring_joints)
 doc.recompute()
-check(mb.isValid() and mb.Count == 0 and len(mb.Notes) == 4 and "miter" in mb.Notes[0], f"miter joints: noted ({mb.Notes})")
+check(mb.isValid() and mb.Count == 0 and len(mb.Notes) == 4 and "miter" in mb.Notes[0],
+      f"miter joints: noted ({mb.Notes})")
 check(list(mb.VisibilityList) == [False] and Part.getShape(mb).isNull(), "no brackets: nothing stray is shown")
 report = cutlist.build_report(doc)
 check(not report.hardware and any("miter joint" in w for w in report.warnings), "miter joints: note in the cut list")
@@ -414,5 +431,83 @@ for j in ring_joints:
 doc.recompute()
 check(mb.Count == 4 and all(mb.VisibilityList) and len(Part.getShape(mb).Solids) == 4,
       f"butt joints again: 4 brackets, shown ({mb.Count}, {mb.VisibilityList})")
+
+# ---- the commands, with a stand-in for the GUI selection ----------------------------------------
+# freecadcmd has no FreeCADGui.Selection; the stand-in hands the commands what an unresolved
+# selection would: the top-level object and the full subname of each pick.
+
+import types  # noqa: E402
+
+from freecad.profile_builder import brackets_ui  # noqa: E402
+
+
+class Picked:
+    def __init__(self, obj, subs=()):
+        self.Object, self.SubElementNames = obj, tuple(subs)
+
+
+selection = {"ex": [], "objects": []}
+shown, messages = [], []
+brackets_ui.Gui = types.SimpleNamespace(
+    Selection=types.SimpleNamespace(getSelectionEx=lambda doc="", resolve=1: selection["ex"],
+                                    getSelection=lambda: selection["objects"], clearSelection=lambda: None),
+    Control=types.SimpleNamespace(activeDialog=lambda: False, showDialog=shown.append))
+brackets_ui._message = lambda text, title="": messages.append(text)
+brackets_ui.task_panel = lambda obj: obj
+
+
+def select(ex=(), objects=()):
+    selection["ex"], selection["objects"] = list(ex), list(objects)
+
+
+App.setActiveDocument(doc.Name)
+raw = doc.addObject("Part::Feature", "Imported")
+raw.Shape = L.transformed(skew.toMatrix(), True)
+doc.recompute()
+f1, f2, _v = canonical_faces(raw.Shape, skew)
+count = len([o for o in doc.Objects if brackets.is_brackets(o)])
+
+select()
+brackets_ui.CreateBrackets().Activated()
+check(messages and "two faces that touch the profiles" in messages[-1]
+      and len([o for o in doc.Objects if brackets.is_brackets(o)]) == count, "command: no picks, instructions shown")
+select([Picked(raw, [f"Face{f1}"])], [raw])
+brackets_ui.CreateBrackets().Activated()
+check("1 face(s) picked" in messages[-1] and len([o for o in doc.Objects if brackets.is_brackets(o)]) == count,
+      "command: one face, refused with instructions")
+select([Picked(lines)], [lines])
+brackets_ui.CreateBrackets().Activated()
+check(len([o for o in doc.Objects if brackets.is_brackets(o)]) == count and "two faces" in messages[-1],
+      "command: a line object is not taken as the bracket")
+select([Picked(part)], [part])
+brackets_ui.CreateBrackets().Activated()
+check(shown and shown[-1].LinkedObject == part and shown[-1].SourceFrame.isIdentity() and shown[-1].Count == 4,
+      "command: a whole part without picks is used as modelled")
+
+select([Picked(raw, [f"Face{f1}", f"Face{f2}"]), Picked(ring[0], ["Face3"])], [raw, ring[0]])
+brackets_ui.CreateBrackets().Activated()
+made = shown[-1] if shown else None
+check(made is not None and brackets.is_brackets(made) and made.LinkedObject == raw
+      and same_placement(made.SourceFrame, skew) and made.Count == 2,
+      f"command: brackets at the joints of the selected profile, calibrated ({made and made.Count})")
+
+select([Picked(raw, [f"Face{f1}", f"Face{f2}"])], [raw])
+brackets_ui.CreateBrackets().Activated()
+made = shown[-1]
+check(made.Count == 4 and len(made.Joints) == 4 and made.AllJoints,
+      f"command: all joints, also later ones, when none are selected ({made.Count})")
+
+# Mis-set it, then pick the contact faces on its first placed bracket (a placed copy has
+# the part's own face numbers).
+made.SwapLegs = True
+made.SourceFrame = App.Placement()
+doc.recompute()
+select([Picked(made, [f"0.Face{f1}", f"0.Face{f2}"])], [])
+check(brackets_ui.CalibrateBracket().IsActive(), "calibrate: active with picks on a placed bracket")
+brackets_ui.CalibrateBracket().Activated()
+check(same_placement(made.SourceFrame, skew) and not made.SwapLegs and made.Count == 4,
+      f"calibrate: picks on a placed bracket set the frame again ({made.SourceFrame})")
+select([], [])
+check(not brackets_ui.CalibrateBracket().IsActive(), "calibrate: inactive without a Brackets object")
 
 print("\n%d failure(s)" % len(failures))

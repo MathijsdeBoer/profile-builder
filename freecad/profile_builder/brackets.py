@@ -33,7 +33,7 @@ V = App.Vector
 
 TYPE = "ProfileBuilder::Brackets"
 RULES = ("Inner faces", "All open faces")
-FIELDS = ("Rule", "SwapLegs", "SlotOffset", "Item", "ArticleNumber")
+FIELDS = ("Rule", "AllJoints", "SwapLegs", "SlotOffset", "Item", "ArticleNumber")
 SLOT_TOLERANCE = 0.5  # mm: the slots of the two contact faces must line up this well
 MEET = 0.01  # mm: how far a butting end may stop short of the other profile's face
 OUTWARD = 1.0  # mm: a T-junction side faces out of the frame only beyond this
@@ -179,6 +179,10 @@ def joint_spots(joint, rule, centre):
     return found, notes
 
 
+def all_joints(doc):
+    return [o for o in doc.Objects if joints.is_joint(o)]
+
+
 def members_of(joint_list):
     """The profiles at the joints (ending or passing through), each once."""
     found = OrderedDict()
@@ -254,6 +258,8 @@ class Brackets:
         add("App::PropertyEnumeration", "Rule", "Brackets",
             "Inner faces: at a T-junction, only on the side facing the middle of the frame. "
             "All open faces: on both sides.", list(RULES))
+        add("App::PropertyBool", "AllJoints", "Brackets",
+            "Place brackets at every joint in the document, also at joints made later", False)
         add("App::PropertyLinkList", "Joints", "Brackets", "Joints whose corners get brackets")
         add("App::PropertyLinkList", "Members", "Brackets",
             "Profiles at the joints, so the brackets follow their changes", mode=2)
@@ -291,11 +297,26 @@ class Brackets:
                 obj.Rule = rule if rule in RULES else RULES[0]
         finally:
             self._restoring = False
+        obj.setEditorMode("Joints", 1 if obj.AllJoints else 0)
+
+    def onChanged(self, obj, prop):
+        if prop == "AllJoints" and "Joints" in obj.PropertiesList:
+            obj.setEditorMode("Joints", 1 if obj.AllJoints else 0)  # only the view changes
+
+    def mustExecute(self, obj):
+        # A joint made later (the Joints command after adding a profile)
+        # touches nothing this object depends on.
+        return bool(getattr(obj, "AllJoints", False)
+                    and [j.Name for j in all_joints(obj.Document)] != [j.Name for j in obj.Joints])
 
     def execute(self, obj):
         if obj.LinkedObject is None:
             # FreeCAD puts the label in front of the message.
             raise ValueError("no bracket part; set LinkedObject to the bracket (for example an imported STEP body)")
+        if obj.AllJoints:
+            everything = all_joints(obj.Document)
+            if [j.Name for j in obj.Joints] != [j.Name for j in everything]:
+                obj.Joints = everything
         joint_list = [j for j in obj.Joints if joints.is_joint(j)]
         members = members_of(joint_list)
         if [m.Name for m in obj.Members] != [m.Name for m in members]:
@@ -561,15 +582,12 @@ class ViewProviderBrackets:
     def getIcon(self):
         return os.path.join(feature.ICON_DIR, "Brackets.svg")
 
-    def _panel(self, obj):
-        from .simple_panel import PropertyTaskPanel
-        return PropertyTaskPanel(obj, FIELDS, "Brackets", info)
-
     def setEdit(self, vobj, mode=0):
         if mode != 0:
             return None
         import FreeCADGui as Gui
-        Gui.Control.showDialog(self._panel(vobj.Object))
+        from .brackets_ui import task_panel
+        Gui.Control.showDialog(task_panel(vobj.Object))
         return True
 
     def unsetEdit(self, vobj, mode=0):
@@ -582,8 +600,9 @@ class ViewProviderBrackets:
     def doubleClicked(self, vobj):
         # Not through setEdit: a link without elements would edit its part instead.
         import FreeCADGui as Gui
+        from .brackets_ui import task_panel
         if not Gui.Control.activeDialog():
-            Gui.Control.showDialog(self._panel(vobj.Object))
+            Gui.Control.showDialog(task_panel(vobj.Object))
         return True
 
     def dumps(self):

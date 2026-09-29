@@ -36,6 +36,10 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
 - **Joints**: where profiles on sketch edges meet, they butt against each other (one runs through, the
   others stop at its face) or miter. T-junctions are detected too. Joints follow sketch changes and
   profile size changes, so the cut list tells you "8 × 380, 4 × 470" without any manual trimming.
+- **Brackets**: your own bracket part, for example a STEP file from your supplier, is placed in every
+  square corner of the butt joints, one per slot that lines up on both profiles. Pick the bracket's two
+  faces that touch the profiles once, and the brackets follow sketch edits, joint swaps and size
+  changes. The cut list counts them, with the article number you type in. Miter corners get none yet.
 - **Section properties**: Ix, Iy, Wx and Wy of the modelled section, including closed faces and the
   weight class. For example, a 2040 standing on edge is 3.5× stiffer than lying flat.
 - **Panels**: sheets that sit in the slots between profiles or cover the frame face (enclosure sides). You
@@ -75,6 +79,8 @@ tested on 1.1.
 | Series drop-downs | Inserts a catalog size straight away with your last-used length and style, placing it on the selected edges if there are any. |
 | **Joints...** | Joins profiles on sketch edges wherever they meet, using the selected profiles or all of them. |
 | **Panel...** | Creates a sheet in the opening between three or more selected profiles. |
+| **Brackets...** | Places your bracket part in the corners of the joints. Pick its two contact faces first: the one on the profile that ends at the joint, then the one on the profile it meets. |
+| **Calibrate bracket** | Sets again how the bracket sits, from its two contact faces picked on a placed bracket or on the part. |
 | **Pricing and stock...** | Prices, stock bar length, kerf, cutting, delivery and tax, with a live estimate. |
 | **Cut list and costs** | Creates or updates the `Cut list` spreadsheet. |
 | **Export cut list (CSV)** | Writes the same data to a CSV file. |
@@ -98,7 +104,11 @@ tested on 1.1.
    When profiles are equally long, direction decides (X before Y before Z), so a square comes out
    as 2 long and 2 short sides.
 5. Optionally select the four profiles around an opening and add a **Panel**.
-6. Set prices in **Pricing and stock** and create the **Cut list and costs**.
+6. Optionally import your corner bracket (File > Import, e.g. a STEP file), pick its two faces that touch
+   the profiles and click **Brackets**. `Rule` decides whether a T-junction gets brackets on both sides or
+   only on the side facing the middle of the frame. `SwapLegs` turns brackets with unequal legs, and
+   `SlotOffset` moves a bracket whose slot key is off-centre.
+7. Set prices in **Pricing and stock** and create the **Cut list and costs**.
 
 Joints need straight members. Butt joints need them to be perpendicular, and miter joints work where
 exactly two profiles meet. The Joint object reports an error if a corner doesn't fit these rules.
@@ -131,4 +141,5 @@ proposal, an implementation approach checked against the code, and the effort.
 
 - `python -m pytest tests`: catalog, stock and piece-identity tests, no FreeCAD needed
 - `freecadcmd tests/freecad_smoke.py`: geometry, edges, miters, save/reload and cut list (run it from the repo root)
+- `freecadcmd tests/freecad_brackets.py`: bracket calibration and placement, on the 400 mm cube and more
 - `freecadcmd tools/make_icons.py`: regenerates the toolbar icons from the real geometry

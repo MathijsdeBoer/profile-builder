@@ -376,6 +376,8 @@ def register():
     Gui.addCommand("ProfileBuilder_SwapJoint", SwapJoint())
     Gui.addCommand("ProfileBuilder_Panel", CreatePanel())
     Gui.addCommand("ProfileBuilder_Pricing", Pricing())
+    from . import brackets_ui
+    brackets_ui.register()
     groups = []
     for key, series in profiles.SERIES.items():
         names = []
