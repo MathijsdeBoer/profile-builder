@@ -19,7 +19,11 @@ pytest is not installed globally; run it through uv:
 ```bash
 uvx pytest tests -q -p no:cacheprovider                              # pure-Python tests (catalog, stock)
 uvx pytest tests/test_stock.py::test_kerf_can_force_an_extra_bar -q   # a single test
+uvx --with numpy --with scipy pytest tests -q -p no:cacheprovider    # includes the frame solver tests
 ```
+
+`tests/test_frame_model.py` is skipped when numpy and scipy are missing, which is the case with plain
+`uvx pytest`.
 
 The FreeCAD tests need FreeCAD's console. Run them from the repo root, because the script finds the
 package through the working directory:
@@ -31,6 +35,9 @@ package through the working directory:
 
 - `freecad_smoke.py` prints `ok`/`FAIL` lines and ends with `N failure(s)`. It takes about 75 s,
   because it builds every catalog variant.
+- Each feature has its own script in the same style: `tests/freecad_stiffness.py`,
+  `tests/freecad_linear.py` and `tests/freecad_brackets.py`. The expected tracebacks are "Invalid profile
+  dimensions" (stiffness) and "no bracket part" (brackets).
 - `freecadcmd` often prints each output line twice; filter with `awk '!seen[$0]++'`.
 - A traceback about "Panel is too thick" is expected: that is a deliberate error case.
 - The file name must not match `test_*.py` / `*_test.py`, or pytest will try to collect it.
@@ -68,6 +75,10 @@ The modules form layers, and the lower ones must stay importable without the GUI
     slot dimensions; a test enforces this.
   - `validate()` catches impossible geometry, both in tests and at recompute time.
 - **Stock planner (`stock.py`)**: pure Python 1D cutting-stock (first/best-fit decreasing).
+- **Other pure modules**:
+  - `stroke.py`: clear-run, stroke and belt-length rules.
+  - `metreware.py`: price parsing is pure; `report()` reads the document.
+  - `frame_model.py`: a numpy/scipy 3D beam solver (mm, N, kg; tonnes internally), with no FreeCAD imports.
 - **Piece identity (`pieces.py`)**: pure Python. `canonical_cuts()` decides which pieces are identical
   by applying physical turns that keep the closed faces in place. It is why mirror-image miter pieces
   share a cut-list row. It also provides the `letters()` used for piece marks and spreadsheet columns.
@@ -79,6 +90,12 @@ The modules form layers, and the lower ones must stay importable without the GUI
 - **Document objects (`feature.py`, `joints.py`, `panels.py`, `pricing.py`)**: FeaturePython objects
   with view providers. `feature.Frame` / `member_frame()` gives a profile's world axes plus its section
   rectangle. Joints and panels use it for all placement maths.
+- **Features on top of the frame**:
+  - **Frame stiffness** (`frame_stiffness.py`, GUI in `frame_ui.py`) builds a beam model from the
+    profiles and joints and solves it at a loose and a stiff joint bound.
+  - **Carriages** (`linear.py`, GUI in `linear_ui.py`).
+  - **Brackets** (`brackets.py`, GUI in `brackets_ui.py`): a link array of the user's part. `execute`
+    only writes `ElementCount` and `PlacementList`, and never creates objects.
 - **Report (`cutlist.py`)**: `build_report(doc)` returns a `Report`. `_blocks()` turns it into the rows
   that both the spreadsheet and the CSV writer use.
   - Objects with errors go into `Report.errors`, shown as a block at the top, and the total is marked
@@ -92,6 +109,9 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - Callers run `recompute_if_needed(doc)` first.
   - Index rows through `PIECE_HEADER.index(...)`, not fixed positions.
   - `apply_marks()` writes `PieceMark`, an output property, so writing it does not trigger a recompute.
+  - Carriages with a belt feed the "Metre ware" block, and placed brackets the "Hardware" block. A
+    broken carriage or Brackets object goes into `Report.errors`. Stiffness results stay out of the cut
+    list.
 - **GUI (`commands.py`, `taskpanel.py`, `simple_panel.py`, `pricing_ui.py`)**: the GUI modules only.
   Every task panel opens a document transaction, applies changes live on a debounce timer, and
   implements Cancel as `abortTransaction()`.
@@ -134,6 +154,32 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - `tests/fixtures/legacy_<commit>.FCStd` are documents saved by older versions (8733122, the first,
     and ead3f7d). The smoke test opens each and compares with the stored results. Regenerate them only
     from a worktree of that commit with `make_legacy_fixture.py`, which refuses to run on current code.
+- **Frame stiffness**:
+  - Load the solver only through `frame_stiffness.solver()` (a lazy import), so the workbench and
+    documents still load without numpy/scipy.
+  - The settings object (`ProfileBuilderStiffness`, with the baseline as JSON) never links to profiles.
+  - The frame is taken as Z-up: supports are the lowest nodes, loads act on the highest.
+  - Joint springs come from geometry and the through rules, never from object names. At each joint the
+    through profile is rigid and the others get springs of factor·E·I/L; a miter gets two springs of
+    2·factor·E·I/L in series. Supports sit on the centre line of the profile standing on them.
+  - Tests that call `App.Units.setSchema` must restore the original schema.
+  - Some FreeCAD unit schemas have no units for moments, frequencies or stiffness; `unit_for` falls back
+    to metric or imperial units there.
+- **Carriages must not create cycles**:
+  - A carriage links to its `Rail`, and through `Neighbours` (an `App::PropertyLinkListGlobal`, rewritten
+    in `execute`) to the profiles and panels that reach its envelope, minus anything in its
+    `InListRecursive`. It never writes to them.
+  - `PropertyLinkListHidden` creates no dependency in FreeCAD 1.1, so don't switch to it.
+  - `make_profile`/`make_panel` call `linear.touch_carriages(doc)`, and profiles and panels call
+    `linear.member_moved` from `onChanged("Placement")`. Keep both hooks.
+  - `obj.Shape` returns an immutable shape in FreeCAD 1.1: use `shape.transformed(matrix)` rather than
+    setting its Placement. An offset that must survive assigning `obj.Placement` goes inside a compound.
+- **Brackets**:
+  - The Brackets object links to its Joints and to a hidden Members list; profiles and joints never
+    link to it.
+  - `SourceFrame` is in the part's own coordinates (`LinkTransform` is False, so the part's own
+    Placement is ignored).
+  - The type name "Fitting" is reserved for the planned feet and castors feature.
 - **Panel materials**: `panels.material_data` returns None for unknown or ambiguous names ("glass-clear
   PETG"). `Expansion == 0` means "not known", and the thermal check is then skipped rather than guessed.
 - **Product keys**:

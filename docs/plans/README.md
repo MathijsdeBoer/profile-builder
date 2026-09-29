@@ -14,7 +14,8 @@ Effort: S = under a day, M = 1-3 days, L = about a week, XL = more.
 
 ## Suggested order
 
-Already done: the bug fixes and quick wins from the review (section properties, section cache, panel materials and thermal fit, piece marks), and the first international fixes.
+Already done: the bug fixes and quick wins from the review (section properties, section cache, panel materials and thermal fit, piece marks), the first international fixes, and first stages of
+the frame stiffness estimate, the linear axis carriage and bracket placement.
 
 1. [Addon Manager readiness: licence, metadata, CI and translations](addon-manager-readiness.md) (M, high value)
 2. [International use: units, imperial profiles and translations](international-units-and-formats.md) (L, high value)
@@ -29,7 +30,7 @@ Already done: the bug fixes and quick wins from the review (section properties, 
 |---|---|---|---|
 | [Box frame generator sized by outside, inside or centre-line dimensions](box-frame-generator.md) | Planned | L | high |
 | [Enclosure doors: sheet doors and framed guard doors with hinge gaps and a swing check](enclosure-doors.md) | Planned | XL | medium |
-| [Linear axis on a profile: carriage, usable stroke and belt length](linear-axis-carriage.md) | Planned | L | low |
+| [Linear axis on a profile: carriage, usable stroke and belt length](linear-axis-carriage.md) | Partly done | L | low |
 
 ## Joints & assembly
 
@@ -38,7 +39,7 @@ Already done: the bug fixes and quick wins from the review (section properties, 
 | [Connection method per joint, with derived machining: end taps, access holes, counterbores](joint-connection-machining.md) | Planned | L | high |
 | [Angled butt joints for diagonal braces](angled-butt-joints.md) | Planned | M | medium |
 | [End fittings: levelling feet, castors, floor brackets and end caps with height compensation](end-fittings.md) | Planned | M | medium |
-| [Place the user's vendor STEP brackets at every joint](step-bracket-placement.md) | Planned | L | medium |
+| [Place the user's vendor STEP brackets at every joint](step-bracket-placement.md) | Partly done | L | medium |
 
 ## Manufacturing & ordering
 
@@ -77,7 +78,7 @@ Already done: the bug fixes and quick wins from the review (section properties, 
 | [Racking and bracing audit for frames](racking-audit.md) | Planned | M | medium |
 | [Guarding check aid (ISO 13857 distances, floor gap, guard height)](guarding-check.md) | Planned | L | low |
 | [Profile sizing advisor: the cheapest profile and orientation that passes a load check](sizing-advisor.md) | Planned | L | low |
-| [Frame stiffness and natural-frequency model with joint-stiffness bounds and variant comparison](frame-stiffness-model.md) | Planned | XL | low |
+| [Frame stiffness and natural-frequency model with joint-stiffness bounds and variant comparison](frame-stiffness-model.md) | Partly done | XL | low |
 | [Panel fit budget: thermal expansion and cut tolerance for sheets in slots and on faces](panel-thermal-fit.md) | Done | S | medium |
 | [Section properties from the modelled section (Ix, Iy, W, principal axes, centroid offset)](section-properties.md) | Done | S | medium |
 
