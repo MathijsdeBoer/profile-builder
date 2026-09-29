@@ -262,6 +262,9 @@ class Panel:
                 # Keep the density (a guess is worse than the last value) but do
                 # not keep checking the fit with another material's expansion.
                 obj.Expansion = 0.0
+        if prop == "Placement":  # also set by each recompute, after the new shape
+            from .linear import member_moved  # it may now block a carriage
+            member_moved(obj)
 
     def execute(self, obj):
         points, n, width, height, area = panel_outline(obj)
@@ -382,4 +385,6 @@ def make_panel(doc, profiles, **props):
         setattr(obj, name, value)
     if App.GuiUp:
         ViewProviderPanel(obj.ViewObject)
+    from .linear import touch_carriages  # a new panel may block a carriage
+    touch_carriages(doc)
     return obj

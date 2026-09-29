@@ -43,8 +43,18 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
   expansion follow the material (acrylic, polycarbonate, Dibond, glass, ...). A thermal check warns when a
   sheet in the slots would get too tight between its lowest and highest temperature, for example in a
   heated printer enclosure.
-- **Pricing**: price per metre per product and per m² per sheet, cutting cost, delivery (flat, per kg, free
-  above an order value) and tax. The prices are stored in the document and can be saved as your defaults.
+- **Linear axis carriage**: a carriage that runs along a profile face, shown as a placeholder block or as
+  your own model (for example a STEP file). It finds what really blocks it: posts at the rail ends, a
+  T-junction member on its face, a panel in its slot, or objects you list. Members that butt against
+  another face don't count, unless the carriage wraps around that face. You get the clear run and the
+  usable stroke (the run minus the carriage and its end stops), and a warning when the stroke drops
+  below what the axis needs, for example after changing the posts from 40 to 45. The position is set in
+  percent or as a distance, and can be driven by an expression; what rides on the carriage, such as a
+  gantry beam standing on it, can follow it by an expression too. For a belt drive you get the length of the
+  open belt, rounded up to whole teeth, and the cut list lists it as metre ware.
+- **Pricing**: price per metre per product and per m² per sheet, metre ware such as belts per metre or
+  per foot, cutting cost, delivery (flat, per kg, free above an order value) and tax. The prices are stored
+  in the document and can be saved as your defaults.
 - **Stock bars**: pieces are packed into stock bars (with saw kerf and end trim) and you get a cutting plan
   per bar, or you can price the order as cut to size.
 - **Cut list and costs**: a spreadsheet or CSV with the pieces, stock plan, sheets and cost summary.
@@ -79,6 +89,7 @@ tested on 1.1.
 | Series drop-downs | Inserts a catalog size straight away with your last-used length and style, placing it on the selected edges if there are any. |
 | **Joints...** | Joins profiles on sketch edges wherever they meet, using the selected profiles or all of them. |
 | **Panel...** | Creates a sheet in the opening between three or more selected profiles. |
+| **Carriage...** | Adds a carriage on the selected profile (click the face it runs on) and shows its clear run and stroke. Select a solid as well to show it as the carriage. |
 | **Pricing and stock...** | Prices, stock bar length, kerf, cutting, delivery and tax, with a live estimate. |
 | **Cut list and costs** | Creates or updates the `Cut list` spreadsheet. |
 | **Export cut list (CSV)** | Writes the same data to a CSV file. |
@@ -140,4 +151,5 @@ proposal, an implementation approach checked against the code, and the effort.
 - `uvx --with numpy --with scipy pytest tests`: also runs the frame solver tests (skipped without numpy/scipy)
 - `freecadcmd tests/freecad_smoke.py`: geometry, edges, miters, save/reload and cut list (run it from the repo root)
 - `freecadcmd tests/freecad_stiffness.py`: the frame stiffness estimate against closed forms, baseline and units
+- `freecadcmd tests/freecad_linear.py`: carriages, clear run and stroke (also from the repo root)
 - `freecadcmd tools/make_icons.py`: regenerates the toolbar icons from the real geometry

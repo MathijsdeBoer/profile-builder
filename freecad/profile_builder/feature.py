@@ -248,6 +248,9 @@ class Profile:
         if prop in SECTION_PROPS or prop == "Label":
             from . import joints
             joints.touch_joints_of(obj)
+        if prop == "Placement":  # also set by each recompute, after the new shape
+            from .linear import member_moved  # it may now block a carriage
+            member_moved(obj)
 
     def execute(self, obj):
         dims = dimensions(obj)
@@ -506,4 +509,6 @@ def make_profile(series=profiles.DEFAULT_SERIES, cols=1, rows=1, length=1000.0,
     if App.GuiUp:
         ViewProviderProfile(obj.ViewObject)
     obj.Label = auto_label(obj)
+    from .linear import touch_carriages  # a new profile may block a carriage
+    touch_carriages(doc)
     return obj

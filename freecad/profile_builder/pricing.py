@@ -36,6 +36,8 @@ FIELDS = (
     ("ProfilePrices", "App::PropertyMap", "Prices", "Price per metre, by product", None),
     ("StockLengths", "App::PropertyMap", "Prices", "Bar length in mm by product, if not the default", None),
     ("SheetPrices", "App::PropertyMap", "Prices", "Price per square metre, by sheet material", None),
+    ("MetrePrices", "App::PropertyMap", "Prices",
+     "Price of metre ware such as belts, by item: per metre, or with a unit, e.g. '0.75/ft'", None),
 )
 
 
