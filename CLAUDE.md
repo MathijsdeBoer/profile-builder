@@ -136,7 +136,9 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - Which profile runs through a butt joint is decided in this order: passing member, then the joint's
     `ThroughRule == "Manual"`, then the profiles' `JointRole`, then the rule. Ties are broken by
     direction (X, then Y, then Z), never by object name; name-based tie-breaking caused the
-    "pinwheel" bug.
+    "pinwheel" bug. Lines at equal angles to the axes (a frame turned 45°) are then told apart by
+    their signed direction, flipped so the first non-zero component is positive, so neither the
+    drawing direction nor the end decides.
   - A manual choice is stored by object name in `ThroughName`, because labels change. `Through` is
     only the label shown in the UI.
   - A joint-driven miter sets `StartMiterFromJoint` / `EndMiterFromJoint`, so the profile goes back to a
