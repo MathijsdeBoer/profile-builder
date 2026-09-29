@@ -2,11 +2,39 @@
 
 | | |
 |---|---|
-| Status | Planned |
+| Status | Partly done |
 | Category | Design & modelling |
 | Effort | L (first estimate M) |
 | Value | low |
 | Proposed from | industrial |
+
+## Status
+
+First stage done (2026-09-29), in the new modules `linear.py` (document object), `stroke.py` (pure-Python rules) and `linear_ui.py` (command and task panel):
+
+- **Carriage object** linked to a rail profile and one of its faces (Top/Bottom/Left/Right as on the section). It has CarriageLength, EnvelopeWidth, EnvelopeHeight, Wrap (how far it reaches back around the rail's sides), EndStopLength, RequiredStroke, Run, and a position given in percent of the stroke or as a distance. Expressions work on the position, for simple motion checks.
+- **Clear run from what really blocks the envelope**, as corrected below:
+  - Every other profile and panel, plus the objects listed in Obstacles, is tested against the envelope swept along the rail: first a bounding box in the rail's frame, then a boolean with the envelope prism.
+  - A member butting against another face does not block, unless the carriage wraps around that face. A T-junction member on the carriage's face splits the rail into runs; Run picks one (0 = the longest). A panel in the face's slot blocks the whole rail, which is reported as an error.
+  - Mitered rail ends shorten the face under the carriage.
+- **Outputs**: ClearRun, Stroke, Travel, Limits (what ends the run), Runs (all runs) and Warning. Warning covers a stroke below RequiredStroke, a carriage that does not fit, and a position outside the stroke. Warnings also go to the report view, and the tree's description shows the stroke. Lengths are formatted in the user's unit system.
+- **No cycles**: the carriage links to the rail and, through a Neighbours list (global-scope links, hidden in the property editor), to the other profiles and panels. It therefore recomputes after them, for example when the posts change from 40 to 45, and it never writes to them. New profiles and panels made by the workbench mark carriages for recompute, so they are found at once.
+- **Shape**: a placeholder box, or the shape of a linked Body (for example an imported STEP) in carriage coordinates, adjusted with BodyPlacement.
+- **GUI**: a Carriage command (click the face it runs on; a selected solid becomes the Body) and a task panel with live preview, which shows the position in percent or as a distance.
+- **Tests**: `tests/test_stroke.py` covers the rules. `tests/freecad_linear.py` covers:
+  - a rail between two posts, including 40 to 45 mm posts;
+  - T-junctions on the carriage face, on another face, and with wrap;
+  - a through rail on posts, and a mitered ring;
+  - an obstacle, a panel in the slot and a linked body;
+  - save and reload, undo, and the task panel.
+
+Not done yet:
+- **Belt drive**: pulley pitch diameter, clamp allowance and belt length, and a metre-ware block in the cut list priced per metre or per foot.
+- **Members added by other means** (copy and paste, Draft arrays, scripts that do not use `make_profile` / `make_panel`) are only found when the carriage next recomputes for another reason.
+- **Simplifications**: two carriages on one rail do not block each other. The envelope is always centred on the face, and one end stop length applies to both ends.
+- **Units in the task panel**: it shows lengths in mm, like the other simple panels (see international-units-and-formats.md).
+- **Reporting**: the frame check and the cut list do not list carriage warnings.
+- **GUI testing**: the command, face picking and the task panel inside FreeCAD's GUI were not run. The task panel logic is tested headless.
 
 ## Problem
 
@@ -22,7 +50,7 @@ A Carriage object linked to a profile and one of its faces, with CarriageLength,
 
 ## What exists today
 
-Not implemented. Deriving the stroke from JointStartOffset/JointEndOffset and support() is too simple. Which members block the carriage depends on the face it runs on and on how far the carriage wraps around the profile; V-wheel plates wrap 2-3 faces. A member that butts against a different face of a through rail doesn't block, and T-junction members in the middle of the rail do. There is also no metre-ware or hardware line type for a belt in cutlist or pricing.
+The first stage (see Status) follows the corrected approach below. Before it, nothing existed. Deriving the stroke from JointStartOffset/JointEndOffset and support() is too simple. Which members block the carriage depends on the face it runs on and on how far the carriage wraps around the profile; V-wheel plates wrap 2-3 faces. A member that butts against a different face of a through rail doesn't block, and T-junction members in the middle of the rail do. There is also no metre-ware or hardware line type for a belt in cutlist or pricing.
 
 ## Implementation approach
 

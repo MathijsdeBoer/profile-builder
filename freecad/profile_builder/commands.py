@@ -7,6 +7,7 @@ import FreeCADGui as Gui
 import Part
 
 from . import cutlist, feature, joints, panels, pricing, profiles
+from . import linear, linear_ui  # carriages
 from .feature import ICON_DIR
 
 
@@ -48,7 +49,7 @@ def selected_edges():
 
     for sel in Gui.Selection.getSelectionEx():
         obj = sel.Object
-        if feature.is_profile(obj) or joints.is_joint(obj) or panels.is_panel(obj):
+        if feature.is_profile(obj) or joints.is_joint(obj) or panels.is_panel(obj) or linear.is_carriage(obj):
             continue
         subs = [s for s in sel.SubElementNames if s.startswith("Edge")]
         if subs:
@@ -376,6 +377,7 @@ def register():
     Gui.addCommand("ProfileBuilder_SwapJoint", SwapJoint())
     Gui.addCommand("ProfileBuilder_Panel", CreatePanel())
     Gui.addCommand("ProfileBuilder_Pricing", Pricing())
+    Gui.addCommand("ProfileBuilder_Carriage", linear_ui.CreateCarriage())
     groups = []
     for key, series in profiles.SERIES.items():
         names = []

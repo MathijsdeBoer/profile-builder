@@ -382,4 +382,6 @@ def make_panel(doc, profiles, **props):
         setattr(obj, name, value)
     if App.GuiUp:
         ViewProviderPanel(obj.ViewObject)
+    from .linear import touch_carriages  # a new panel may block a carriage
+    touch_carriages(doc)
     return obj

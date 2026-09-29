@@ -506,4 +506,6 @@ def make_profile(series=profiles.DEFAULT_SERIES, cols=1, rows=1, length=1000.0,
     if App.GuiUp:
         ViewProviderProfile(obj.ViewObject)
     obj.Label = auto_label(obj)
+    from .linear import touch_carriages  # a new profile may block a carriage
+    touch_carriages(doc)
     return obj
