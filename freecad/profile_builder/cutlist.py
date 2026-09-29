@@ -5,13 +5,14 @@ import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
-from . import feature, joints, panels, pricing, stock
+from . import brackets, feature, joints, panels, pricing, stock
 from .pieces import canonical_cuts, letters, upright
 
 PIECE_HEADER = ("Mark", "Qty", "Product", "Length (mm)", "Saw length (mm)", "Miter start (°)",
                 "Miter end (°)", "Miter across (mm)", "Mass each (kg)", "Price/m", "Cost", "Profiles")
 STOCK_HEADER = ("Bar", "Product", "Bar length (mm)", "Pieces (mark: saw length)", "Offcut (mm)")
 SHEET_HEADER = ("Qty", "Sheet", "Width (mm)", "Height (mm)", "Area each (m²)", "Price/m²", "Cost")
+HARDWARE_HEADER = ("Qty", "Item", "Article number", "Placed by")
 MARK_TEXT = re.compile(r"Mark [A-Z]+\d+")  # the tree Description that apply_marks writes
 
 
@@ -22,6 +23,7 @@ class Report:
     pieces: list = field(default_factory=list)  # rows matching PIECE_HEADER
     stock: list = field(default_factory=list)  # rows matching STOCK_HEADER
     sheets: list = field(default_factory=list)  # rows matching SHEET_HEADER
+    hardware: list = field(default_factory=list)  # rows matching HARDWARE_HEADER
     summary: list = field(default_factory=list)  # (label, value)
     warnings: list = field(default_factory=list)
     errors: list = field(default_factory=list)  # objects left out because they have an error
@@ -86,6 +88,8 @@ def broken_objects(doc):
             reason, kind = _panel_problem(obj), "panel"
         elif joints.is_joint(obj):
             reason, kind = (None if obj.isValid() else _status(obj)), "joint"
+        elif brackets.is_brackets(obj):
+            reason, kind = brackets.problem(obj), "brackets"
         else:
             continue
         if reason:
@@ -211,6 +215,10 @@ def build_report(doc):
         report.sheets.append((qty, key, width, height, round(area, 4), "" if price is None else price,
                               _money(cost)))
 
+    # Placed hardware is counted, not priced yet.
+    report.hardware = brackets.hardware(doc)
+    report.warnings.extend(brackets.notes(doc))
+
     goods = material + cutting + sheet_cost
     free = s["FreeDeliveryAbove"] > 0 and goods >= s["FreeDeliveryAbove"]
     delivery = 0.0 if free or goods == 0 else s["DeliveryFlat"] + s["DeliveryPerKg"] * mass
@@ -241,6 +249,8 @@ def _blocks(report):
         blocks.append((f"Stock plan ({len(report.stock)} bars)", STOCK_HEADER, report.stock))
     if report.sheets:
         blocks.append(("Sheets", SHEET_HEADER, report.sheets))
+    if report.hardware:
+        blocks.append(("Hardware (counted, not priced)", HARDWARE_HEADER, report.hardware))
     blocks.append((f"Costs ({report.mode}, {report.currency})", ("Item", "Amount"),
                    [list(r) for r in report.summary]))
     if report.warnings:
