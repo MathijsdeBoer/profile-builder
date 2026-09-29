@@ -137,7 +137,7 @@ proposal, an implementation approach checked against the code, and the effort.
 ## Development
 
 - `python -m pytest tests`: catalog, stock and piece-identity tests, no FreeCAD needed
-- `uvx pytest tests --with numpy --with scipy`: also runs the frame solver tests (skipped without numpy/scipy)
+- `uvx --with numpy --with scipy pytest tests`: also runs the frame solver tests (skipped without numpy/scipy)
 - `freecadcmd tests/freecad_smoke.py`: geometry, edges, miters, save/reload and cut list (run it from the repo root)
 - `freecadcmd tests/freecad_stiffness.py`: the frame stiffness estimate against closed forms, baseline and units
 - `freecadcmd tools/make_icons.py`: regenerates the toolbar icons from the real geometry

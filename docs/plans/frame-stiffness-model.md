@@ -24,13 +24,18 @@ Done:
   - Profiles on path edges are beams with E·Ix/Iy from the modelled section.
   - Nodes are the joints and the free ends. Passing members are split at their T-junctions.
   - Anchor offsets (`Frame.center_offset`) and the trimmed part of a butting end are rigid links.
-  - At each joint the through profile (or the first profile of a miter) is rigid. Every other end hangs
-    on a rotational spring k = factor · E·I/L of that profile. The loose bound defaults to 0.5, the
-    EN 1993-1-8 limit for a nominally pinned joint; AISC 360 uses 2 for "simple". The stiff bound
-    defaults to rigid.
+  - At a butt joint the through profile (`joints.through_member`) is rigid, and every other end hangs
+    on a rotational spring k = factor · E·I/L of that profile. At a T-junction every butting end gets
+    one. At a miter neither profile runs through, so each gets a spring of 2 · factor · E·I/L of its
+    own, in series; two equal profiles then make factor · E·I/L, as at a butt joint. Nothing depends
+    on object names, so the order the profiles were made in does not change the result. The loose
+    bound defaults to 0.5, the EN 1993-1-8 limit for a nominally pinned joint; AISC 360 uses 2 for
+    "simple". The stiff bound defaults to rigid.
   - Mass comes from the pieces (overhangs are lumped at the nodes), from panels (lumped at their corner
     nodes) and from an optional mass on top.
-  - Supports are the lowest nodes, pinned or fixed. Parts that do not reach them are left out and listed.
+  - Supports are the lowest nodes, pinned or fixed. Each sits on the centre line of the profile
+    standing on it, not at the sketch vertex, so a pin under an anchored post does not act partly as a
+    clamp. Parts that do not reach the supports are left out and listed.
   - Profiles with errors, profiles off sketch edges and panels with errors are listed as left out, and
     the report is marked incomplete.
 - Outputs, for both bounds:
@@ -41,9 +46,14 @@ Done:
 - A "Frame stiffness" document object holds the settings (loose and stiff joint factors, supports,
   mass on top) and the baseline as JSON. The report shows ratios against the baseline
   ("1.1–1.9×"), the mass change and, when prices are set, the cost change in the document's currency.
+  When the variant and the baseline lack prices for different products or sheets (the cut list's
+  `Report.unpriced`), the cost change is reported as not known, naming them; when both lack the same
+  ones, the change leaves them out and says so.
 - The task panel (`frame_ui.py`) shows the results live as the settings change, with Set/Clear baseline
   and Print report. It says at the top that the numbers are estimates with joint-stiffness bounds. OK
   keeps the settings and baseline; Cancel undoes them. The report is also printed to the report view.
+  The buttons and OK first apply a change still waiting for the debounce timer, and only the values the
+  user changed are written back, so a stored factor the spin boxes round (12.34 shown as 12.3) is kept.
 - Values go through FreeCAD's unit schema: kN/m or lbf/in, N·m/° or lbf·ft/°, kg or lb. When a schema has
   no rule for a quantity, it falls back to metric or imperial by the schema. The mass on top accepts
   "11 lb" or "5 kg".
@@ -51,10 +61,18 @@ Done:
 - `tests/freecad_stiffness.py` covers:
   - a 2040 portal against the closed form with rigid end zones and joint springs (within 0.2 %), and a
     400 mm 2020 cube against the two-face closed form at both bounds;
+  - the same portal with miter joints, built in three creation orders: identical results, and the
+    closed form with the two miter springs in series;
+  - anchor offsets and Spin: a fixed 2040 post anchored at a corner and turned 90°, against
+    H³/(3·E·I) plus the twist from the offset force (e²·H/(G·J)), in X and Y;
+  - a pinned table whose posts are anchored inside the sketch corners, against two pinned portals
+    (bending, end zones, joint springs and post axial strain), with the supports under the posts;
   - mechanisms, X/Y symmetry and sway/twist mode names;
-  - fixed feet, mass on top, the baseline and its ratios, save and reload;
+  - fixed feet, mass on top, the baseline and the values of its ratios, save and reload;
+  - the cost change: an unpriced variant, a priced one, and the same or different unpriced items;
   - left-out objects, panel mass, T-junction splitting and free ends;
-  - the task panel run headless, and the unit schemas (Standard, Imperial decimal, MKS).
+  - the task panel run headless (including a change still waiting for the debounce timer, and stored
+    factors the spin boxes round), and the unit schemas (Standard, Imperial decimal, MKS).
 - A 184-profile frame (4 × 3 × 3 bays of 4040) analyses in about 1 s.
 
 Not done yet:
@@ -69,6 +87,10 @@ Not done yet:
 - Diagonal braces: the model handles any angle, but butt joints need perpendicular profiles until
   [angled butt joints](angled-butt-joints.md) exist.
 - Free profiles (no path edge) are not in the model.
+- The loads act at the top nodes, which are sketch vertices. With anchored profiles these sit beside
+  the centre lines, so the sideways results include a little twisting of the posts, as a real load at
+  that point would cause. A support under a frame lying on level profiles only (no post) goes on the
+  average of the nearest points on their centre lines, which is exact only when those lines meet.
 - The solver is dense, which is fine up to a few thousand DOFs, or a few hundred profiles.
 - The GUI has not been run in FreeCAD itself yet. The panel was built and driven headless in freecadcmd
   and rendered off screen.
@@ -109,7 +131,7 @@ no rule, and always shows frequencies in Hz.
    - Mass from Profile.Mass and Panel.Mass, plus lumped payload points.
    - On-face panels as equivalent diagonals.
 3. Store the baseline as JSON on a document object and report ratios in a cutlist block before building any colouring UI.
-4. Test against cantilever and portal-frame closed forms with uvx pytest --with numpy --with scipy.
+4. Test against cantilever and portal-frame closed forms with `uvx --with numpy --with scipy pytest tests`.
 
 ## Blockers and caveats
 
@@ -124,7 +146,7 @@ no rule, and always shows frequencies in Hz.
 - Without bracing, a near-pinned cube is a mechanism, so the lower bound needs a minimum joint stiffness and a clear 'depends entirely on the joints' message.
 - T-nut joints slip, which a linear model ignores.
 - Machine resonances are often dominated by belts, drives, the toolhead or spindle, so present frequencies as frame-only.
-- pytest via uvx needs --with numpy --with scipy.
+- pytest via uvx needs numpy and scipy: `uvx --with numpy --with scipy pytest tests` (the `--with` options go before `pytest`).
 - The UI for loads and results is a lot of work, so the effort is easy to underestimate. Build the racking audit first.
 
 ## Prior art

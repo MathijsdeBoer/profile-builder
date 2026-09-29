@@ -1,6 +1,6 @@
 """Frame solver tests against closed-form results (no FreeCAD needed).
 
-Needs numpy and scipy: uvx pytest tests -q -p no:cacheprovider --with numpy --with scipy
+Needs numpy and scipy: uvx --with numpy --with scipy pytest tests -q -p no:cacheprovider
 Without them these tests are skipped.
 """
 
