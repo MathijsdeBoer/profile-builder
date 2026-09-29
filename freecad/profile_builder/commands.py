@@ -380,6 +380,8 @@ def register():
     from .frame_ui import FrameStiffness
     Gui.addCommand("ProfileBuilder_FrameStiffness", FrameStiffness())
     Gui.addCommand("ProfileBuilder_Carriage", linear_ui.CreateCarriage())
+    from . import brackets_ui
+    brackets_ui.register()
     groups = []
     for key, series in profiles.SERIES.items():
         names = []
