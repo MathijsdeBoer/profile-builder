@@ -36,7 +36,8 @@ package through the working directory:
 - `freecad_smoke.py` prints `ok`/`FAIL` lines and ends with `N failure(s)`. It takes about 75 s,
   because it builds every catalog variant.
 - Each feature has its own script in the same style: `tests/freecad_stiffness.py`,
-  `tests/freecad_linear.py` and `tests/freecad_brackets.py`. The expected tracebacks are "Invalid profile
+  `tests/freecad_linear.py`, `tests/freecad_brackets.py` and `tests/freecad_panels.py` (panel fabrication,
+  panel fit and stable piece marks; the expected traceback is "must lie parallel to the panel"). The expected tracebacks are "Invalid profile
   dimensions" (stiffness) and "no bracket part" (brackets).
 - `freecadcmd` often prints each output line twice; filter with `awk '!seen[$0]++'`.
 - A traceback about "Panel is too thick" is expected: that is a deliberate error case.
@@ -79,6 +80,8 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - `stroke.py`: clear-run, stroke and belt-length rules.
   - `metreware.py`: price parsing is pure; `report()` reads the document.
   - `frame_model.py`: a numpy/scipy 3D beam solver (mm, N, kg; tonnes internally), with no FreeCAD imports.
+  - `fabrication.py`: flat sheet parts in 2D: rounded outlines, holes along slot lines (clipping,
+    keep-outs, spacing), the fingerprint that groups identical sheets, and the DXF R12 and SVG writers.
 - **Piece identity (`pieces.py`)**: pure Python. `canonical_cuts()` decides which pieces are identical
   by applying physical turns that keep the closed faces in place. It is why mirror-image miter pieces
   share a cut-list row. It also provides the `letters()` used for piece marks and spreadsheet columns.
@@ -108,7 +111,10 @@ The modules form layers, and the lower ones must stay importable without the GUI
     Prices saved under the old key are found through `legacy_product_key`.
   - Callers run `recompute_if_needed(doc)` first.
   - Index rows through `PIECE_HEADER.index(...)`, not fixed positions.
-  - `apply_marks()` writes `PieceMark`, an output property, so writing it does not trigger a recompute.
+  - Marks are stable. `build_report` reads the marks given so far from the document's `Piece marks`
+    object (`cutlist.MarkStore`, JSON in an output property), `pieces.assign_marks` keeps each group's
+    mark while its key exists, and `apply_marks()` stores the result. It also writes `PieceMark`, an output
+    property on profiles and panels, so none of this triggers a recompute.
   - Carriages with a belt feed the "Metre ware" block, and placed brackets the "Hardware" block. A
     broken carriage or Brackets object goes into `Report.errors`. Stiffness results stay out of the cut
     list.
@@ -182,6 +188,20 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - `SourceFrame` is in the part's own coordinates (`LinkTransform` is False, so the part's own
     Placement is ignored).
   - The type name "Fitting" is reserved for the planned feet and castors feature.
+- **Piece marks**:
+  - The mark key is the `collect()` key as JSON. Changing that key (the product key, the rounding, the
+    cut description) gives every group in existing documents a new mark.
+  - Marks of vanished groups are retired, never reused. Only the Renumber command resets them.
+  - Sheet marks use the prefix `P-`. Profile marks never contain a hyphen, so the two cannot collide.
+  - The 3D label lives under the view provider's `RootNode`, which already carries the placement, so its
+    position is in local coordinates. The root node stays in the scene when the object is hidden, so the
+    label's switch follows `Visibility` by hand.
+- **Panel fabrication**:
+  - `panels.drawing()` is the single description of the flat part. The solid, the exported files, the
+    hole count and the cut-list grouping all come from it, so they cannot disagree.
+  - Holes, rounding and tolerance default to 0 for panels in opened older documents (`CutTolerance` is
+    0.2 mm only for new panels), so their shapes and fit results do not change.
+  - DXF R12 has no unit field: the unit goes in the file name and the MARK text. Keep DXF text ASCII.
 - **Panel materials**: `panels.material_data` returns None for unknown or ambiguous names ("glass-clear
   PETG"). `Expansion == 0` means "not known", and the thermal check is then skipped rather than guessed.
 - **Product keys**:

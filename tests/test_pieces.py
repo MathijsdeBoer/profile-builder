@@ -56,3 +56,31 @@ def test_prefers_positive_angles():
 
 def test_letters():
     assert [pieces.letters(i) for i in (0, 1, 25, 26, 27, 51, 52)] == ["A", "B", "Z", "AA", "AB", "AZ", "BA"]
+
+
+def test_marks_start_like_a_fresh_list():
+    state = {}
+    groups = [("2020", "a"), ("2020", "b"), ("2040", "c")]
+    assert pieces.assign_marks(groups, state) == {"a": "A1", "b": "A2", "c": "B1"}
+
+
+def test_marks_stay_when_other_groups_change():
+    state = {}
+    pieces.assign_marks([("2020", "a"), ("2020", "b"), ("2040", "c")], state)
+    # "a" changed length (new key "a2"), "b" is unchanged, a new product arrived first in sort order.
+    marks = pieces.assign_marks([("1515", "x"), ("2020", "a2"), ("2020", "b"), ("2040", "c")], state)
+    assert marks == {"x": "C1", "a2": "A3", "b": "A2", "c": "B1"}
+
+
+def test_retired_marks_are_not_reused():
+    state = {}
+    pieces.assign_marks([("2020", "a"), ("2020", "b")], state)
+    pieces.assign_marks([("2020", "b")], state)  # "a" is gone
+    assert pieces.assign_marks([("2020", "b"), ("2020", "new")], state) == {"b": "A2", "new": "A3"}
+
+
+def test_fixed_prefix_and_order():
+    state = {}
+    assert pieces.assign_marks([("", "s1"), ("", "s2")], state, prefix="P-") == {"s1": "P-1", "s2": "P-2"}
+    marks = ["B1", "A10", "AA1", "A2", "A1"]
+    assert sorted(marks, key=pieces.mark_order) == ["A1", "A2", "A10", "B1", "AA1"]

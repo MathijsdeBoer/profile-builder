@@ -44,9 +44,16 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
   weight class. For example, a 2040 standing on edge is 3.5× stiffer than lying flat.
 - **Panels**: sheets that sit in the slots between profiles or cover the frame face (enclosure sides). You
   get the sheet size, area and mass, and a check that the sheet fits the slot. Density and thermal
-  expansion follow the material (acrylic, polycarbonate, Dibond, glass, ...). A thermal check warns when a
-  sheet in the slots would get too tight between its lowest and highest temperature, for example in a
-  heated printer enclosure.
+  expansion follow the material (acrylic, polycarbonate, Dibond, glass, ...). The fit checks (see
+  [Panel fit](#panel-fit)) warn when a sheet in the slots gets too tight when hot or could come out when
+  cold, and when the screw holes of a sheet on the face leave too little play.
+- **Panel fabrication**: sheets on the face get mounting holes on the slot centre lines, evenly spaced,
+  clear of the corners and joints where brackets sit, and a minimum distance from the edge. Where a face
+  has two slots (a 2040 lying flat) you pick the outer, the inner or both. Corners can be rounded, and a
+  sketch parallel to the sheet adds cutouts (fans, cable glands). **Export panels** writes a DXF and an
+  SVG per different sheet for laser cutting or CNC routing, in mm or inches, with the mark, material and
+  size in the file name and as text on a separate layer. The cut list counts the holes and lists a screw
+  and slot nut for each.
 - **Linear axis carriage**: a carriage that runs along a profile face, shown as a placeholder block or as
   your own model (for example a STEP file). It finds what really blocks it: posts at the rail ends, a
   T-junction member on its face, a panel in its slot, or objects you list. Members that butt against
@@ -63,8 +70,11 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
   per bar, or you can price the order as cut to size.
 - **Cut list and costs**: a spreadsheet or CSV with the pieces, stock plan, sheets and cost summary.
   - Identical pieces are grouped even when they were drawn in opposite directions.
-  - Each group gets a mark (A1, A2, ...), which also appears in the stock plan and in the tree's
-    description column.
+  - Each group gets a mark (A1, A2, ...), and each different sheet one too (P-1, P-2, ...). Marks
+    appear in the stock plan, the tree's description column and, with **Show piece marks**, in the 3D
+    view. They stay put when other pieces change: a changed piece gets a new number and old numbers are
+    not reused, so labels already on pieces stay right. **Renumber piece marks** closes the gaps.
+  - Sheets are the same part when their outline, holes and cutouts match, also turned or flipped over.
   - Objects with errors are listed at the top, and the total is marked incomplete.
   - The CSV export writes either decimal points with commas between fields, or decimal commas with
     semicolons, as used in many regions. It offers your system's format first.
@@ -99,6 +109,9 @@ tested on 1.1.
 | **Pricing and stock...** | Prices, stock bar length, kerf, cutting, delivery and tax, with a live estimate. |
 | **Cut list and costs** | Creates or updates the `Cut list` spreadsheet. |
 | **Export cut list (CSV)** | Writes the same data to a CSV file. |
+| **Export panels (DXF/SVG)** | Writes a DXF and an SVG file for each different sheet into a folder. The unit follows FreeCAD's unit system. |
+| **Show piece marks** | Shows or hides the marks in the 3D view, on the selected profiles or all of them. |
+| **Renumber piece marks** | (menu only) Numbers all pieces again from A1. Labels printed earlier no longer match. |
 | **Frame stiffness...** | Estimates sideways and twist stiffness and natural frequencies, as a range between loose and stiff joints, and compares with a stored baseline. |
 
 ### Frame workflow
@@ -137,6 +150,33 @@ from freecad.profile_builder import feature
 p = feature.make_profile("40-8", cols=1, rows=2, length=750, SlotStyle="V-slot", MiterEnd=45)
 App.ActiveDocument.recompute()
 ```
+
+### Panel fit
+
+The fit checks compare the sheet with the aluminium frame between the assembly temperature and the
+lowest and highest temperature in use. What they assume:
+
+- Only the difference counts, because the frame expands too (23 µm per m per kelvin). Acrylic expands
+  about three times as much, so a 600 mm acrylic sheet fitted at 20 °C grows 0.85 mm more than its frame
+  at 50 °C. Glass and wood expand less than aluminium, so they shrink against the frame when warm.
+- **Hot, in the slots**: the growth plus the cut tolerance must fit in the gaps at the slot bottoms on
+  both sides together. That holds wherever the sheet sits, even when a standing panel rests on its lower
+  edge, as long as it can slide. A sheet that is glued, clamped or pressed in by a stiff seal cannot slide
+  and bows instead.
+- **Cold, in the slots**: the sheet shrinks, may be cut undersize, and can rest against the far slot.
+  What is left in the slot must reach past the slot lips. A large Clearance helps when hot but hurts
+  here, so the two checks together bound it.
+- **On the face**: screws hold the sheet, so it grows around its centre, and the farthest holes move
+  most. The holes need that much play around the screws. Oversize holes (and washers) let the sheet move;
+  tight holes crack acrylic. If one hole is a snug locating hole instead, the sheet grows from there, and
+  with that hole in a corner the far holes need about twice the play.
+- **Cut tolerance** (±) is part of the budget: a laser or CNC cut is typically within 0.1-0.2 mm, a saw
+  within 0.5-1 mm.
+- The temperatures are those of the sheet, not the air. A sheet in a heated enclosure runs cooler than
+  the air inside, and a dark sheet in the sun much warmer than the air outside. The expansion
+  coefficients vary by grade (cast or extruded acrylic, for example), so the results are rounded rules of
+  thumb. Wood and MDF move more with humidity than with temperature; that is not checked. Temperatures
+  are in °C for now.
 
 ## Accuracy
 

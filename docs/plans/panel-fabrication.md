@@ -2,11 +2,23 @@
 
 | | |
 |---|---|
-| Status | Planned |
+| Status | Done |
 | Category | Manufacturing & ordering |
 | Effort | L (first estimate M) |
 | Value | high |
 | Proposed from | printer-builder, purchasing-workshop |
+
+## Status
+
+Done on 2026-09-30:
+- On-face panels get holes on the slot centre lines (`HoleDiameter`, `HoleSpacing`, `EdgeDistance`, `CornerKeepout`, `SlotChoice`). The lines follow each member's real extent after joint trims, are clipped to the sheet shrunk by the edge distance, and keep away from the sheet corners and from every joint in the frame plane. A slot line too close to the edge is reported, not dropped silently. Closed faces get no holes.
+- `CornerRadius` rounds the sheet corners (reduced, with a note, when an edge is too short). `Cutouts` links a sketch parallel to the sheet; its closed outlines are cut through (lines, arcs and circles stay exact, other curves are approximated in the files).
+- Holes and cutouts are cut from the solid, so the mass is right. `HoleCount` is an output.
+- The flat part is computed once (`panels.drawing`) and used for the solid, the files and the cut list.
+- **Export panels** writes a DXF R12 (layers CUT, HOLES, MARK) and a true-size SVG per different sheet, with the part's lower-left corner at the origin. The unit (mm or inch) follows FreeCAD's unit schema and is in the file name and the MARK text, because DXF R12 cannot store it. The writers are pure Python (`fabrication.py`, tested with pytest).
+- The cut list's sheet rows have a mark (P-1, ...) and a Holes column. Sheets are grouped by a fingerprint of outline, holes and cutouts, so a front and a back sheet, or one turned 90°, are the same part. The Hardware block gets a screw and slot nut per hole, and the notes say to slide in-slot sheets in before the frame is closed.
+
+Not done: a price per hole or per cut metre, nesting several parts on one sheet, and brackets as keep-outs (a fixed radius around each joint is used instead). Flipping a sheet over counts as the same part, which is wrong for sheets with a finished face, such as brushed aluminium or printed composite.
 
 ## Problem
 

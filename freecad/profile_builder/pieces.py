@@ -77,3 +77,38 @@ def letters(index):
         index, rest = divmod(index - 1, 26)
         text = string.ascii_uppercase[rest] + text
     return text
+
+
+def assign_marks(groups, state, prefix=None):
+    """Stable marks for groups of identical pieces: {key: mark}.
+
+    ``groups`` is [(product, key)] in the order new marks are handed out (the
+    report passes the longest piece of a product first). ``state`` holds the
+    marks given so far, {"letters": {product: letter}, "marks": {key: mark}},
+    and is updated in place; the caller stores it with the document. A group
+    keeps its mark while its key exists. A new group gets the next number of
+    its product's letter, and a new product the next letter. Marks of groups
+    that no longer exist are retired, not reused, so a printed label never
+    comes to mean another piece. With ``prefix`` (e.g. "P-") every mark uses
+    that prefix instead of a product letter.
+    """
+    products = state.setdefault("letters", {})
+    marks = state.setdefault("marks", {})
+    result = {}
+    for product, key in groups:
+        if key in marks:
+            result[key] = marks[key]
+            continue
+        start = prefix or products.get(product)
+        if start is None:
+            start = products[product] = letters(len(products))
+        used = [int(m[len(start):]) for m in marks.values() if m.startswith(start) and m[len(start):].isdigit()]
+        marks[key] = result[key] = f"{start}{max(used, default=0) + 1}"
+    return result
+
+
+def mark_order(mark):
+    """Sort key for marks: A1, A2, A10, B1, AA1, P-1."""
+    head = mark.rstrip("0123456789")
+    tail = mark[len(head):]
+    return (len(head), head, int(tail) if tail else 0)

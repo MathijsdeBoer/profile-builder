@@ -343,12 +343,97 @@ class CreatePanel:
     def Activated(self):
         doc = App.ActiveDocument
         members = [o for o in Gui.Selection.getSelection() if feature.is_profile(o)]
+        # A sketch selected with the profiles holds the cutouts.
+        sketches = [o for o in Gui.Selection.getSelection() if o.TypeId == "Sketcher::SketchObject"]
         doc.openTransaction("Create panel")
-        panel = panels.make_panel(doc, members)
+        panel = panels.make_panel(doc, members, cutouts=sketches[0] if sketches else None)
         doc.recompute()
         doc.commitTransaction()
         Gui.Selection.clearSelection()
         Gui.ActiveDocument.setEdit(panel, 0)
+
+
+def _refresh_marks(doc, title):
+    """Build the report and store its marks, in one undoable step; returns the report."""
+    cutlist.recompute_if_needed(doc)
+    report = cutlist.build_report(doc)
+    doc.openTransaction(title)
+    cutlist.apply_marks(doc, report)
+    sheet = doc.getObject("CutList")
+    if sheet is not None and sheet.TypeId == "Spreadsheet::Sheet":
+        cutlist.write_spreadsheet(doc, report)
+    doc.commitTransaction()
+    return report
+
+
+class ShowMarks:
+    def GetResources(self):
+        return {
+            "Pixmap": icon("PieceMarks.svg"),
+            "MenuText": "Show piece marks",
+            "ToolTip": ("Show or hide the piece marks (A1, A2, ...) in the 3D view, on the selected profiles\n"
+                        "or on all of them. Showing them brings the marks up to date first."),
+        }
+
+    def IsActive(self):
+        return App.ActiveDocument is not None and any(feature.is_profile(o) for o in App.ActiveDocument.Objects)
+
+    def Activated(self):
+        doc = App.ActiveDocument
+        chosen = [o for o in Gui.Selection.getSelection() if feature.is_profile(o)]
+        members = chosen or [o for o in doc.Objects if feature.is_profile(o)]
+        show = not all(getattr(p.ViewObject, "ShowMark", False) for p in members)
+        if show:
+            _refresh_marks(doc, "Show piece marks")
+        for p in members:
+            p.ViewObject.ShowMark = show
+
+
+class RenumberMarks:
+    def GetResources(self):
+        return {
+            "MenuText": "Renumber piece marks",
+            "ToolTip": ("Number all pieces again from A1, and sheets from P-1, closing the gaps that edits leave.\n"
+                        "Marks otherwise stay put; after renumbering, labels printed earlier no longer match."),
+        }
+
+    def IsActive(self):
+        return App.ActiveDocument is not None
+
+    def Activated(self):
+        doc = App.ActiveDocument
+        doc.openTransaction("Renumber piece marks")
+        cutlist.renumber_marks(doc)
+        doc.commitTransaction()
+        _refresh_marks(doc, "Renumber piece marks")
+        App.Console.PrintMessage("Profile Builder: piece marks renumbered\n")
+
+
+class ExportPanels:
+    def GetResources(self):
+        return {
+            "Pixmap": icon("ExportPanels.svg"),
+            "MenuText": "Export panels (DXF/SVG)...",
+            "ToolTip": ("Write a DXF and an SVG file for each different sheet, for laser cutting or CNC routing.\n"
+                        "The unit (mm or inch) follows FreeCAD's unit system and is in each file name."),
+        }
+
+    def IsActive(self):
+        return App.ActiveDocument is not None and any(panels.is_panel(o) for o in App.ActiveDocument.Objects)
+
+    def Activated(self):
+        from PySide import QtWidgets
+        doc = App.ActiveDocument
+        start = os.path.dirname(doc.FileName) if doc.FileName else ""
+        folder = QtWidgets.QFileDialog.getExistingDirectory(Gui.getMainWindow(), "Export panels to folder", start)
+        if not folder:
+            return
+        report = _refresh_marks(doc, "Export panels")
+        written = panels.export_panels(doc, folder, report.marks)
+        App.Console.PrintMessage(f"Profile Builder: {len(written) // 2} sheet(s) written to {folder}\n")
+        for error in report.errors:
+            if "(panel)" in error:
+                App.Console.PrintError(f"  Not exported: {error}\n")
 
 
 class Pricing:
@@ -377,6 +462,9 @@ def register():
     Gui.addCommand("ProfileBuilder_SwapJoint", SwapJoint())
     Gui.addCommand("ProfileBuilder_Panel", CreatePanel())
     Gui.addCommand("ProfileBuilder_Pricing", Pricing())
+    Gui.addCommand("ProfileBuilder_ShowMarks", ShowMarks())
+    Gui.addCommand("ProfileBuilder_RenumberMarks", RenumberMarks())
+    Gui.addCommand("ProfileBuilder_ExportPanels", ExportPanels())
     from .frame_ui import FrameStiffness
     Gui.addCommand("ProfileBuilder_FrameStiffness", FrameStiffness())
     Gui.addCommand("ProfileBuilder_Carriage", linear_ui.CreateCarriage())

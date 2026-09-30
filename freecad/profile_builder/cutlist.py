@@ -1,20 +1,24 @@
 """Cut list, stock plan, sheet list and cost estimate for a document."""
 
 import csv
+import hashlib
+import json
 import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from . import brackets, feature, joints, panels, pricing, stock
 from . import metreware  # belts and other material bought by length
-from .pieces import canonical_cuts, letters, upright
+from .pieces import assign_marks, canonical_cuts, letters, mark_order, upright
 
 PIECE_HEADER = ("Mark", "Qty", "Product", "Length (mm)", "Saw length (mm)", "Miter start (°)",
                 "Miter end (°)", "Miter across (mm)", "Mass each (kg)", "Price/m", "Cost", "Profiles")
 STOCK_HEADER = ("Bar", "Product", "Bar length (mm)", "Pieces (mark: saw length)", "Offcut (mm)")
-SHEET_HEADER = ("Qty", "Sheet", "Width (mm)", "Height (mm)", "Area each (m²)", "Price/m²", "Cost")
+SHEET_HEADER = ("Mark", "Qty", "Sheet", "Width (mm)", "Height (mm)", "Holes", "Area each (m²)", "Price/m²",
+                "Cost")
 HARDWARE_HEADER = ("Qty", "Item", "Article number", "Placed by")
-MARK_TEXT = re.compile(r"Mark [A-Z]+\d+")  # the tree Description that apply_marks writes
+MARK_TEXT = re.compile(r"Mark (?:[A-Z]+|P-)\d+")  # the tree Description that apply_marks writes
+SHEET_PREFIX = "P-"  # sheet marks; profile marks never contain a hyphen
 
 
 @dataclass
@@ -29,7 +33,8 @@ class Report:
     summary: list = field(default_factory=list)  # (label, value)
     warnings: list = field(default_factory=list)
     errors: list = field(default_factory=list)  # objects left out because they have an error
-    marks: dict = field(default_factory=dict)  # profile Name -> piece mark
+    marks: dict = field(default_factory=dict)  # profile or panel Name -> piece mark
+    mark_state: str = ""  # the marks given so far, for apply_marks to store (JSON)
     unpriced: list = field(default_factory=list)  # products and sheets without a price, so not in the total
 
     @property
@@ -144,21 +149,21 @@ def build_report(doc):
     report.errors = broken_objects(doc)
 
     groups = collect(doc)
-    products = sorted({key[0] for key in groups})
-    letter = {product: letters(i) for i, product in enumerate(products)}
-    numbers = {}
-    # Within a product, the longest piece is number 1.
-    for key in sorted(groups, key=lambda k: (k[0], -k[2], k)):
-        numbers[key] = sum(1 for other in numbers if other[0] == key[0]) + 1
+    state = mark_state(doc)
+    # New groups are numbered longest first within their product.
+    order = sorted(groups, key=lambda k: (k[0], -k[2], k))
+    texts = {k: json.dumps(list(k)) for k in order}
+    given = assign_marks([(k[0], texts[k]) for k in order], state.setdefault("profiles", {}))
+    mark_of = {k: given[texts[k]] for k in order}
 
     pieces_by_product = OrderedDict()
     mass_per_metre = {}
     sample = {}  # one profile per product, for the legacy price key
     material = cutting = mass = 0.0
-    for key, objs in sorted(groups.items(), key=lambda kv: (kv[0][0], numbers[kv[0]])):
+    for key, objs in sorted(groups.items(), key=lambda kv: mark_order(mark_of[kv[0]])):
         product, length, saw, cuts = key
         obj, qty = objs[0], len(objs)
-        mark = f"{letter[product]}{numbers[key]}"
+        mark = mark_of[key]
         for o in objs:
             report.marks[o.Name] = mark
         price = _price(prices, obj, product)
@@ -197,16 +202,39 @@ def build_report(doc):
                 report.warnings.append(f"{product}: {len(result.bars)} bar(s), "
                                        f"{result.waste * 100:.0f}% offcut and saw loss")
 
+    # Sheets are the same part when their outline, holes and cutouts match,
+    # also turned or flipped over (see fabrication.fingerprint).
     sheets = OrderedDict()
+    in_slot = 0
+    holes = OrderedDict()  # hole diameter -> [count, panel labels]
     for obj in doc.Objects:
-        if panels.is_panel(obj) and not _panel_problem(obj):
-            key = (panels.sheet_key(obj), round(obj.Width.Value, 1), round(obj.Height.Value, 1))
-            sheets.setdefault(key, [0, obj])[0] += 1
-            _need, fit = panels.thermal_fit(obj)
-            if fit:
-                report.warnings.append(fit)
+        if not panels.is_panel(obj) or _panel_problem(obj):
+            continue
+        try:
+            drawing = panels.drawing(obj)
+        except Exception as exc:  # noqa: BLE001  (listed, never dropped silently)
+            report.errors.append(f"{obj.Label} (panel): {exc}")
+            continue
+        sheet = panels.sheet_key(obj)
+        digest = hashlib.sha1(repr(drawing.fingerprint()).encode()).hexdigest()[:12]
+        sheets.setdefault(f"{sheet}|{digest}", [sheet, []])[1].append(obj)
+        report.warnings.extend(panels.fit_warnings(obj, drawing))
+        report.warnings.extend(f"{obj.Label}: {note}" for note in drawing.notes)
+        in_slot += obj.Mount == "In slot"
+        if drawing.holes:
+            entry = holes.setdefault(round(drawing.diameter, 2), [0, []])
+            entry[0] += len(drawing.holes)
+            entry[1].append(obj.Label)
+    # New sheets are numbered by material, then largest first.
+    order = sorted(sheets, key=lambda k: (sheets[k][0], -sheets[k][1][0].Area.Value, k))
+    sheet_marks = assign_marks([("", k) for k in order], state.setdefault("sheets", {}), prefix=SHEET_PREFIX)
     sheet_cost = 0.0
-    for (key, width, height), (qty, obj) in sorted(sheets.items()):
+    for text in sorted(sheets, key=lambda k: mark_order(sheet_marks[k])):
+        key, objs = sheets[text]
+        obj, qty, mark = objs[0], len(objs), sheet_marks[text]
+        for o in objs:
+            report.marks[o.Name] = mark
+        width, height = round(obj.Width.Value, 1), round(obj.Height.Value, 1)
         price = pricing.lookup(sheet_prices, key)
         if price is None:
             missing.add(key)
@@ -215,8 +243,12 @@ def build_report(doc):
         cost = qty * area * (price or 0.0)
         sheet_cost += cost
         mass += qty * obj.Mass
-        report.sheets.append((qty, key, width, height, round(area, 4), "" if price is None else price,
-                              _money(cost)))
+        report.sheets.append((mark, qty, key, width, height, panels.holes_text(obj), round(area, 4),
+                              "" if price is None else price, _money(cost)))
+    if in_slot:
+        report.warnings.append(f"{in_slot} sheet(s) sit in slots: slide each one in before fitting the last "
+                               "profile around it")
+    report.mark_state = json.dumps(state, sort_keys=True)
 
     report.metre, metre_cost, metre_missing, metre_errors = metreware.report(doc, s.get("MetrePrices"))
     report.errors += metre_errors
@@ -224,6 +256,8 @@ def build_report(doc):
 
     # Placed hardware is counted, not priced yet.
     report.hardware = brackets.hardware(doc)
+    report.hardware += [(count, f"Screw and slot nut for Ø{diameter:g} mm sheet holes", "", ", ".join(labels))
+                        for diameter, (count, labels) in holes.items()]
     report.warnings.extend(brackets.notes(doc))
 
     goods = material + cutting + sheet_cost + metre_cost
@@ -324,15 +358,77 @@ def write_spreadsheet(doc, report, name="CutList"):
     return sheet
 
 
+class MarkStore:
+    """Remembers the marks given so far, so they stay put when other pieces change.
+
+    Deleting this object, or the Renumber piece marks command, numbers the
+    pieces again from A1.
+    """
+
+    Type = "ProfileBuilder::Marks"
+
+    def __init__(self, obj):
+        obj.Proxy = self
+        obj.addProperty("App::PropertyString", "Assigned", "Marks",
+                        "The marks given so far, as JSON (see pieces.assign_marks)")
+        obj.setPropertyStatus("Assigned", "Output")  # storing marks must not trigger a recompute
+        obj.setEditorMode("Assigned", 2)
+
+    def execute(self, obj):
+        pass
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    __getstate__ = dumps
+    __setstate__ = loads
+
+
+def mark_store(doc):
+    for obj in doc.Objects:
+        if getattr(getattr(obj, "Proxy", None), "Type", None) == MarkStore.Type:
+            return obj
+    return None
+
+
+def mark_state(doc):
+    """The marks given so far in this document: {"profiles": {...}, "sheets": {...}}."""
+    store = mark_store(doc)
+    try:
+        state = json.loads(store.Assigned) if store is not None and store.Assigned else {}
+    except ValueError:
+        state = {}
+    return state if isinstance(state, dict) else {}
+
+
+def renumber_marks(doc):
+    """Forget the marks given so far; the next cut list numbers from A1 again."""
+    store = mark_store(doc)
+    if store is not None:
+        store.Assigned = ""
+
+
 def apply_marks(doc, report):
-    """Store each piece's mark on its profile (PieceMark, and the tree's Description).
+    """Store the marks: the ones given so far, and each piece's own (PieceMark and the tree's Description).
 
     PieceMark is an output property, so this does not trigger a recompute. The
     Description (Label2) is only written when it is empty or holds a mark
     written earlier ("Mark A1").
     """
+    store = mark_store(doc)
+    if store is None and report.marks:
+        store = doc.addObject("App::FeaturePython", "PieceMarks")
+        MarkStore(store)
+        store.Label = "Piece marks"
+    if store is not None and store.Assigned != report.mark_state:
+        store.Assigned = report.mark_state
+    if store is not None:
+        store.purgeTouched()
     for obj in doc.Objects:
-        if not feature.is_profile(obj):
+        if not (feature.is_profile(obj) or panels.is_panel(obj)):
             continue
         mark = report.marks.get(obj.Name, "")
         if "PieceMark" in obj.PropertiesList and obj.PieceMark != mark:

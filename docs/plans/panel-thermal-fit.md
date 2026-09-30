@@ -12,6 +12,14 @@
 
 Panels have a materials table (density and expansion follow the material, including trade names such as Plexiglas, Perspex, Lexan, Makrolon and Dibond), assembly/min/max temperatures, and a thermal fit check shown in the Panel dialog and the report notes.
 
+Completed on 2026-09-30:
+- `CutTolerance` (±, 0.2 mm for new panels, 0 for opened older ones so their results do not change) is part of the hot budget.
+- `cold_fit`: at the lowest temperature, with the sheet shrunk, cut undersize and resting against the far slot, what is left in the slot must reach past the slot lips. This is what stops a user from fixing the hot check with an ever larger Clearance.
+- `hole_play` for on-face panels: the play needed around the screws at the hole farthest from the sheet centre, checked against `HoleDiameter` and `ScrewDiameter` when both are set.
+- The assumptions are explained in the README section "Panel fit".
+
+Still open: temperatures are plain °C (see [international-units-and-formats](international-units-and-formats.md)), humidity movement of wood and MDF is not checked, and a snug locating hole (the sheet grows from that hole instead of its centre) is described but not modelled.
+
 ## Problem
 
 Heated 3D printer enclosures (50-60 °C for ABS/ASA), machine enclosures around motors or other heat sources, and frames in unheated halls or outdoors all see large temperature swings. Their sheets are often acrylic or polycarbonate, which expands about 3x more than aluminium. Sheets in slots then bind and bow, and screwed on-face sheets crack at the holes. The panel check only tests thickness against the slot opening.

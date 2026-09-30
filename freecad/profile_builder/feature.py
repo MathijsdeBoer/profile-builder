@@ -452,6 +452,50 @@ class ViewProviderProfile:
 
     def attach(self, vobj):
         self.Object = vobj.Object
+        if "ShowMark" not in vobj.PropertiesList:
+            vobj.addProperty("App::PropertyBool", "ShowMark", "Profile Builder",
+                             "Show the piece mark from the last cut list in the 3D view")
+        from pivy import coin
+        # attach also runs when a document is opened, so the label is rebuilt then.
+        self._mark_switch = coin.SoSwitch()
+        label = coin.SoAnnotation()  # drawn on top, so the solid does not hide it
+        self._mark_position = coin.SoTranslation()
+        color = coin.SoBaseColor()
+        color.rgb = (0.85, 0.28, 0.06)
+        font = coin.SoFont()
+        font.size = 16
+        self._mark_text = coin.SoText2()
+        self._mark_text.justification = coin.SoText2.CENTER
+        for node in (self._mark_position, color, font, self._mark_text):
+            label.addChild(node)
+        self._mark_switch.addChild(label)
+        vobj.RootNode.addChild(self._mark_switch)
+        self._update_mark(vobj)
+
+    def _update_mark(self, vobj):
+        switch = getattr(self, "_mark_switch", None)
+        if switch is None:
+            return
+        obj = vobj.Object
+        mark = getattr(obj, "PieceMark", "")
+        show = bool(getattr(vobj, "ShowMark", False) and vobj.Visibility and mark)
+        if show:
+            self._mark_text.string = mark
+            try:
+                # The root node already carries the placement, so use local coordinates.
+                centre = obj.Placement.inverse().multVec(obj.Shape.BoundBox.Center)
+                self._mark_position.translation = (centre.x, centre.y, centre.z)
+            except Exception:  # noqa: BLE001  (no shape yet)
+                pass
+        switch.whichChild = 0 if show else -1
+
+    def updateData(self, obj, prop):
+        if prop in ("PieceMark", "Shape", "Placement") and obj.ViewObject is not None:
+            self._update_mark(obj.ViewObject)
+
+    def onChanged(self, vobj, prop):
+        if prop in ("ShowMark", "Visibility"):
+            self._update_mark(vobj)
 
     def getIcon(self):
         return os.path.join(ICON_DIR, "Profile.svg")

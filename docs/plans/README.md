@@ -15,7 +15,7 @@ Effort: S = under a day, M = 1-3 days, L = about a week, XL = more.
 ## Suggested order
 
 Already done: the bug fixes and quick wins from the review (section properties, section cache, panel materials and thermal fit, piece marks), the first international fixes, and first stages of
-the frame stiffness estimate, the linear axis carriage and bracket placement.
+the frame stiffness estimate, the linear axis carriage and bracket placement, stable piece marks with 3D labels, and panel fabrication with DXF/SVG export.
 
 1. [Addon Manager readiness: licence, metadata, CI and translations](addon-manager-readiness.md) (M, high value)
 2. [International use: units, imperial profiles and translations](international-units-and-formats.md) (L, high value)
@@ -47,11 +47,11 @@ the frame stiffness estimate, the linear axis carriage and bracket placement.
 |---|---|---|---|
 | [Cheapest-buy stock planner: mixed bar lengths, packs, per-product mode, offcut inventory](cheapest-stock-planner.md) | Planned | L | high |
 | [Hardware BOM from joints and panels, with pack sizes and T-nut preload warnings](hardware-bom.md) | Planned | L | high |
-| [Panel fabrication: slot-aligned mounting holes, rounded corners, cutouts, DXF/SVG export](panel-fabrication.md) | Planned | L | high |
+| [Panel fabrication: slot-aligned mounting holes, rounded corners, cutouts, DXF/SVG export](panel-fabrication.md) | Done | L | high |
 | [Accessories from the model: end caps, slot covers, panel seals and tagged STEP parts](accessories-from-model.md) | Planned | M | medium |
 | [Supplier order export with article numbers, part-number templates and cut-length rules](order-export.md) | Partly done | M | medium |
 | [Order snapshots and change orders ('what changed since I ordered?')](order-revisions.md) | Planned | M | medium |
-| [Stable piece marks in the cut list, stock plan and 3D view](piece-marks.md) | Partly done | M | medium |
+| [Stable piece marks in the cut list, stock plan and 3D view](piece-marks.md) | Done | M | medium |
 | [Named supplier price books and side-by-side quote comparison](supplier-price-books.md) | Planned | M | medium |
 | [Cut list that counts App::Link copies, arrays and assemblies](linked-cutlist.md) | Planned | L | medium |
 | [Printable workshop pack: bar diagrams, saw set-up order, piece sketches, squaring diagonals](workshop-pack.md) | Planned | L | medium |

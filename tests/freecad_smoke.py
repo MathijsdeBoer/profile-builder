@@ -443,7 +443,10 @@ pring = [feature.make_profile("20-6", 1, 1, 100, doc, edge=(lines, f"Edge{i + 1}
 doc.recompute()
 sheet = panels.make_panel(doc, pring)
 doc.recompute()
-check(abs(sheet.Expansion - 70) < 1e-9 and panels.thermal_fit(sheet)[1] is None, "acrylic at 50 °C fits")
+check(abs(sheet.CutTolerance.Value - 0.2) < 1e-9 and panels.thermal_fit(sheet)[1] is not None,
+      "600 mm acrylic at 50 °C is too tight with a ±0.2 mm cut")
+sheet.CutTolerance = 0
+check(abs(sheet.Expansion - 70) < 1e-9 and panels.thermal_fit(sheet)[1] is None, "acrylic at 50 °C fits an exact cut")
 sheet.Material = "Dibond 3 mm"
 check(abs(sheet.Density - 1.27) < 1e-9 and abs(sheet.Expansion - 24) < 1e-9, "Dibond sets density and expansion")
 sheet.Material = "Acrylic clear"
@@ -723,8 +726,9 @@ doc.recompute()
 check(panels.thermal_fit(sheet)[1] is not None, "hot acrylic too tight with the default insert")
 sheet.Material = "Birch ply"
 doc.recompute()
-check(sheet.Expansion == 0 and panels.thermal_fit(sheet) == (0.0, None) and "not recognised" in panels.panel_info(sheet),
-      "unknown material: no thermal check, and the dialog says why")
+check(sheet.Expansion == 0 and panels.relative_change(sheet) == (0.0, 0.0) and panels.thermal_fit(sheet)[1] is None
+      and abs(panels.thermal_fit(sheet)[0] - 0.1) < 1e-9 and "not recognised" in panels.panel_info(sheet),
+      "unknown material: only the cut tolerance is checked, and the dialog says why")
 
 # Currency and money format come from the system's region, not a fixed "€".
 check(pricing.get_settings(doc, create=True).Currency == pricing.default_currency(),

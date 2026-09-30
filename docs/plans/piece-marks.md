@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Partly done |
+| Status | Done |
 | Category | Manufacturing & ordering |
 | Effort | M (first estimate M) |
 | Value | medium |
@@ -10,7 +10,12 @@
 
 ## Status
 
-Marks (A1, A2, ...) appear in the cut list and the stock plan, and are stored in each profile's PieceMark and tree description. Printed labels and colouring by mark are not done.
+Done on 2026-09-30:
+- Marks (A1, A2, ...) appear in the cut list and the stock plan, and are stored in each profile's PieceMark and tree description. Sheets get marks too (P-1, P-2, ...).
+- They are stable: a hidden `Piece marks` object (`cutlist.MarkStore`) keeps the marks given so far as JSON, and `pieces.assign_marks` keeps a group's mark while its key exists. New groups get the next number, new products the next letter, and marks of vanished groups are retired. **Renumber piece marks** starts again from A1. Storing the marks touches nothing.
+- **Show piece marks** draws each mark at the profile's midpoint in the 3D view (a `ShowMark` view property, rebuilt when the document opens, hidden with the profile).
+
+Not done here: printed labels (see [workshop-pack](workshop-pack.md)) and colouring by mark (see [live-cutlist-dock](live-cutlist-dock.md)). A group whose length changes gets a new mark rather than keeping its old one, on purpose: a label on a piece cut at the old length would otherwise be wrong.
 
 ## Problem
 

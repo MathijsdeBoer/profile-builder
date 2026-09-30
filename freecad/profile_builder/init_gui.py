@@ -19,7 +19,8 @@ class ProfileBuilderWorkbench(Gui.Workbench):
                  "ProfileBuilder_Panel", "ProfileBuilder_Carriage",
                  "ProfileBuilder_Brackets", "ProfileBuilder_CalibrateBracket",
                  "Separator", "ProfileBuilder_Pricing",
-                 "ProfileBuilder_CutList", "ProfileBuilder_ExportCutList"]
+                 "ProfileBuilder_CutList", "ProfileBuilder_ExportCutList", "ProfileBuilder_ExportPanels",
+                 "ProfileBuilder_ShowMarks"]
         tools += ["Separator", "ProfileBuilder_FrameStiffness"]
         self.appendToolbar("Profile Builder", main + [group for _key, group, _names in groups])
         self.appendToolbar("Profile Builder tools", tools)
@@ -27,7 +28,7 @@ class ProfileBuilderWorkbench(Gui.Workbench):
         for key, _group, names in groups:
             label = commands.profiles.series_label(key)
             self.appendMenu(["Profiles", label[0].upper() + label[1:]], names)
-        self.appendMenu("Profiles", ["Separator"] + tools)
+        self.appendMenu("Profiles", ["Separator"] + tools + ["ProfileBuilder_RenumberMarks"])
 
     def Activated(self):
         pass
