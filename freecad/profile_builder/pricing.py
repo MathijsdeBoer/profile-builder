@@ -7,6 +7,7 @@ saved as the user's defaults, which new documents start from.
 
 import json
 import os
+import re
 
 import FreeCAD as App
 
@@ -59,9 +60,32 @@ def format_money(value, currency):
     """
     try:
         from PySide import QtCore
-        return QtCore.QLocale.system().toCurrencyString(float(value), currency)
+        return money_in(QtCore.QLocale.system(), value, currency)
     except Exception:  # noqa: BLE001
         return f"{currency} {value:.2f}".strip()
+
+
+def money_in(locale, value, currency):
+    """``value`` as money in a QLocale (see format_money).
+
+    The Qt 5 bindings (FreeCAD 1.0) pick an integer overload of toCurrencyString,
+    and a single-precision one of toString(float), so both lose cents. The
+    number is therefore built from whole integers, in the locale's own digits,
+    and only the symbol's position is taken from the region.
+    """
+    amount = float(value)
+    whole, cents = divmod(round(abs(amount) * 100), 100)
+    zero = locale.zeroDigit()
+    number = (locale.toString(int(whole)) + locale.decimalPoint()
+              + "".join(chr(ord(zero) + int(d)) for d in f"{cents:02d}"))
+    sign = locale.negativeSign() if amount < 0 and (whole or cents) else ""
+    # e.g. "¤1", "¤ 1,00" or "1,00 ¤": Qt 6 adds decimals to the probe, Qt 5 does not.
+    one = locale.toString(1)
+    pattern = locale.toCurrencyString(1, "¤")
+    if pattern.count(one) == 1 and "¤" in pattern:
+        placed = re.sub(re.escape(one) + r"(?:[^\d¤]" + re.escape(zero) + "+)?", lambda _m: number, pattern)
+        return sign + placed.replace("¤", currency).strip()
+    return f"{sign}{currency} {number}".strip()
 
 
 def defaults_path():

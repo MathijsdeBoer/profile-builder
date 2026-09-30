@@ -1,0 +1,73 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: Pure-Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: pytest (catalog, stock, pieces, fabrication, frame solver, metadata)
+        run: uvx --with numpy --with scipy pytest tests -q -p no:cacheprovider
+
+  freecad:
+    name: FreeCAD ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # freecadmin in package.xml is 1.0, so the oldest supported version is tested too.
+          # (0.21 fails the sketch-edit tests: it has no topological naming.)
+          - version: "1.1.4"
+            appimage: FreeCAD_1.1.4-Linux-x86_64-py311.AppImage
+          - version: "1.0.2"
+            appimage: FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache FreeCAD
+        uses: actions/cache@v4
+        with:
+          path: ~/freecad
+          key: ${{ matrix.appimage }}
+      - name: Download and unpack FreeCAD
+        run: |
+          mkdir -p ~/freecad && cd ~/freecad
+          if [ ! -f FreeCAD.AppImage ]; then
+            curl -sSfL -o FreeCAD.AppImage \
+              "https://github.com/FreeCAD/FreeCAD/releases/download/${{ matrix.version }}/${{ matrix.appimage }}"
+          fi
+          chmod +x FreeCAD.AppImage
+          ./FreeCAD.AppImage --appimage-extract > /dev/null
+          # AppRun sets up FreeCAD's environment and runs usr/bin/<first argument>.
+          echo "FREECADCMD=$HOME/freecad/squashfs-root/AppRun freecadcmd" >> "$GITHUB_ENV"
+      # Each script prints ok/FAIL lines and exits non-zero when a check fails. freecadcmd exits 0
+      # when a script raises, so each step also needs the final "0 failure(s)" line.
+      - name: Smoke test
+        shell: bash
+        run: $FREECADCMD tests/freecad_smoke.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt
+      - name: Frame check
+        if: always()
+        shell: bash
+        run: $FREECADCMD tests/freecad_check.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt
+      - name: Panels, fit and piece marks
+        if: always()
+        shell: bash
+        run: $FREECADCMD tests/freecad_panels.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt
+      - name: Frame stiffness
+        if: always()
+        shell: bash
+        run: $FREECADCMD tests/freecad_stiffness.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt
+      - name: Linear axis carriage
+        if: always()
+        shell: bash
+        run: $FREECADCMD tests/freecad_linear.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt
+      - name: Brackets
+        if: always()
+        shell: bash
+        run: $FREECADCMD tests/freecad_brackets.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt

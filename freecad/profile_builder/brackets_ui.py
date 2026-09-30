@@ -9,6 +9,8 @@ import Part
 from . import brackets, feature, joints, panels
 from .feature import ICON_DIR
 
+QT_TRANSLATE_NOOP = App.Qt.QT_TRANSLATE_NOOP
+
 HOW_TO = ("Pick the bracket's two faces that touch the profiles (Ctrl+click): first the one that lies on the "
           "profile ending at the joint, then the one on the profile it meets.\n\n"
           "The bracket can be any part in the document, for example a STEP file from your supplier "
@@ -96,11 +98,11 @@ class CreateBrackets:
     def GetResources(self):
         return {
             "Pixmap": icon("Brackets.svg"),
-            "MenuText": "Brackets...",
-            "ToolTip": ("Place your bracket part (for example a STEP file from your supplier) in the corners\n"
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_Brackets", "Brackets..."),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_Brackets", "Place your bracket part (for example a STEP file from your supplier) in the corners\n"
                         "of the joints. Pick the bracket's two faces that touch the profiles: first the one on\n"
                         "the profile that ends at the joint, then the one on the profile it meets. Select\n"
-                        "joints or profiles as well to limit where brackets go."),
+                        "joints or profiles as well to limit where brackets go.")),
         }
 
     def IsActive(self):
@@ -148,11 +150,11 @@ class CalibrateBracket:
     def GetResources(self):
         return {
             "Pixmap": icon("CalibrateBracket.svg"),
-            "MenuText": "Calibrate bracket",
-            "ToolTip": ("Set how the part of a Brackets object sits in the corners.\n"
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_CalibrateBracket", "Calibrate bracket"),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_CalibrateBracket", "Set how the part of a Brackets object sits in the corners.\n"
                         "Pick the bracket's two faces that touch the profiles, on one of the placed brackets\n"
                         "or on the part itself (select the Brackets object too): first the one on the profile\n"
-                        "that ends at the joint, then the one on the profile it meets."),
+                        "that ends at the joint, then the one on the profile it meets.")),
         }
 
     def IsActive(self):

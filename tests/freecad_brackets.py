@@ -863,3 +863,7 @@ select([], [])
 check(not brackets_ui.CalibrateBracket().IsActive(), "calibrate: inactive without a Brackets object")
 
 print("\n%d failure(s)" % len(failures))
+
+# A non-zero exit code lets CI see failures; os._exit skips FreeCAD's own exit handling.
+sys.stdout.flush()
+os._exit(1 if failures else 0)

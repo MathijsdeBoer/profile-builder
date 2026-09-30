@@ -369,6 +369,7 @@ class MarkStore:
 
     def __init__(self, obj):
         obj.Proxy = self
+        self.issued = {}
         obj.addProperty("App::PropertyString", "Assigned", "Marks",
                         "The marks given so far, as JSON (see pieces.assign_marks)")
         obj.setPropertyStatus("Assigned", "Output")  # storing marks must not trigger a recompute
@@ -377,11 +378,13 @@ class MarkStore:
     def execute(self, obj):
         pass
 
+    # Undo rolls Assigned back, but not this copy, which only ever grows. So undoing
+    # past a printed cut list cannot hand the same mark to another piece later.
     def dumps(self):
-        return None
+        return getattr(self, "issued", None) or None
 
     def loads(self, state):
-        return None
+        self.issued = state if isinstance(state, dict) else {}
 
     __getstate__ = dumps
     __setstate__ = loads
@@ -401,7 +404,32 @@ def mark_state(doc):
         state = json.loads(store.Assigned) if store is not None and store.Assigned else {}
     except ValueError:
         state = {}
-    return state if isinstance(state, dict) else {}
+    state = state if isinstance(state, dict) else {}
+    issued = getattr(getattr(store, "Proxy", None), "issued", None) or {}
+    state = _merged(json.loads(json.dumps(issued)), state)
+    # Undoing the first cut list removes the store itself; this session's record still counts.
+    return _merged(state, json.loads(json.dumps(_SESSION.get(_doc_key(doc), {}))))
+
+
+# Marks given in this session, per document: they outlive an undo that removes the store.
+_SESSION = {}
+
+
+def _doc_key(doc):
+    return getattr(doc, "Uid", None) or doc.Name
+
+
+def _merged(state, other):
+    """``state`` with the letters and marks of ``other`` added (a mark, once given, never changes)."""
+    for part, entries in other.items():
+        if not isinstance(entries, dict):
+            continue
+        target = state.setdefault(part, {})
+        for kind in ("letters", "marks"):
+            known = target.setdefault(kind, {})
+            for key, value in (entries.get(kind) or {}).items():
+                known.setdefault(key, value)
+    return state
 
 
 def renumber_marks(doc):
@@ -409,6 +437,8 @@ def renumber_marks(doc):
     store = mark_store(doc)
     if store is not None:
         store.Assigned = ""
+        store.Proxy.issued = {}
+    _SESSION.pop(_doc_key(doc), None)
 
 
 def apply_marks(doc, report):
@@ -426,7 +456,10 @@ def apply_marks(doc, report):
     if store is not None and store.Assigned != report.mark_state:
         store.Assigned = report.mark_state
     if store is not None:
+        store.Proxy.issued = _merged(json.loads(report.mark_state or "{}"), getattr(store.Proxy, "issued", {}))
         store.purgeTouched()
+    if report.mark_state:
+        _SESSION[_doc_key(doc)] = _merged(json.loads(report.mark_state), _SESSION.get(_doc_key(doc), {}))
     for obj in doc.Objects:
         if not (feature.is_profile(obj) or panels.is_panel(obj)):
             continue

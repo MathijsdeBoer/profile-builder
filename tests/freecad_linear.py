@@ -7,6 +7,11 @@ import tempfile
 
 import freecad
 
+# CI runners have no display: let Qt draw off screen, or creating a QApplication aborts the process.
+# It is set here, not in the job, because FreeCAD's AppRun overrides QT_QPA_PLATFORM.
+if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
 ROOT = os.getcwd()
 # FreeCAD may already have loaded an installed copy of the workbench (for
 # example through a link in its Mod folder) before this script runs. Drop it
@@ -594,3 +599,7 @@ check(car.isValid() and near(car.BeltLength.Value, 1290) and car.PulleyTeeth == 
 App.closeDocument(doc.Name)
 
 print("\n%d failure(s)" % len(failures))
+
+# A non-zero exit code lets CI see failures; os._exit skips FreeCAD's own exit handling.
+sys.stdout.flush()
+os._exit(1 if failures else 0)

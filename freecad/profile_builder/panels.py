@@ -232,7 +232,8 @@ def panel_outline(obj):
 def slot_lines(obj, lay):
     """([(member label, 2D start, 2D end)] of the slot centre lines under an on-face sheet, notes).
 
-    Each line runs over the member's real extent, after its joint trims. On a
+    Each line runs where the member's face beside that slot really exists, so
+    after joint trims and, on a mitered end, only up to the miter cut. On a
     face with several slots (a 2040 lying flat), SlotChoice picks the outer
     one, the inner one or all.
     """
@@ -246,9 +247,11 @@ def slot_lines(obj, lay):
         x0, x1, y0, y1 = f.rect
         cell = m.CellSize.Value
         if face in ("Left", "Right"):
+            normal = f.x if face == "Right" else -f.x
             across, fixed = f.y, f.x * (x1 if face == "Right" else x0)
             slots = [y0 + (k + 0.5) * cell for k in range(m.Rows)]
         else:
+            normal = f.y if face == "Top" else -f.y
             across, fixed = f.x, f.y * (y1 if face == "Top" else y0)
             slots = [x0 + (k + 0.5) * cell for k in range(m.Columns)]
         if len(slots) > 1 and obj.SlotChoice != "All":
@@ -257,20 +260,47 @@ def slot_lines(obj, lay):
         start = (m.Placement.Base - f.origin).dot(f.z)  # 0 unless the profile follows a path edge
         for s in slots:
             base = f.origin + fixed + across * s
-            lines.append((m.Label, lay.to2d(base + f.z * start), lay.to2d(base + f.z * (start + m.Length.Value))))
+            t0, t1 = _face_extent(m, f, base, normal, across, start, m.Length.Value)
+            lines.append((m.Label, lay.to2d(base + f.z * t0), lay.to2d(base + f.z * t1)))
     return lines, notes
 
 
+def _face_extent(m, f, base, normal, across, start, length):
+    """(start, end) along the profile axis where the face beside a slot has material.
+
+    Probes both lips beside the slot, just under the face, against the real
+    solid, so a miter that cuts the slot short (the inner slot of a wide flat
+    profile) is taken into account.
+    """
+    reach = m.SlotOpening.Value / 2 + 0.3
+    lo, hi = start, start + length
+    found = None
+    for side in (1, -1):
+        p = base + across * (side * reach) - normal * 0.3
+        probe = Part.makeLine(p + f.z * (start - length), p + f.z * (start + 2 * length))
+        ts = [(v.Point - f.origin).dot(f.z) for v in m.Shape.common(probe).Vertexes]
+        if not ts:
+            continue
+        span = (min(ts), max(ts))
+        found = span if found is None else (max(found[0], span[0]), min(found[1], span[1]))
+    if found is None or found[1] <= found[0]:
+        return lo, hi
+    return found
+
+
 def _joint_points(obj, lay):
-    """Joints in the panel's frame plane: brackets sit there, so holes keep away."""
+    """The joints of the panel's own profiles: brackets sit there, so holes keep away."""
     from .joints import is_joint
-    points = []
+    names = {m.Name for m in lay.members}
+    found = {}
+    for m in lay.members:
+        for joint in (m.StartJoint, m.EndJoint):
+            if joint is not None:
+                found[joint.Name] = joint
     for other in obj.Document.Objects:
-        if is_joint(other) and other.Shape.Vertexes:
-            p = other.Shape.Vertexes[0].Point
-            if abs((p - lay.origin).dot(lay.n)) < 1.0:
-                points.append(lay.to2d(p))
-    return points
+        if is_joint(other) and names & set(other.PassingMembers):
+            found[other.Name] = other  # a T-junction on one of the panel's profiles
+    return [lay.to2d(j.Shape.Vertexes[0].Point) for j in found.values() if j.Shape.Vertexes]
 
 
 class Drawing:
@@ -281,8 +311,17 @@ class Drawing:
         self.holes, self.diameter, self.cutouts, self.notes = holes, diameter, cutouts, notes
 
     def fingerprint(self):
-        loops = [[s[1] for s in loop] for loop in self.cutouts]
-        return fabrication.fingerprint(self.segments, self.holes, self.diameter, loops)
+        """Points that pin down the whole part: a circle's radius, not just its centre, must count."""
+        def points(s):
+            if s[0] == "line":
+                return [s[1], s[2]]
+            if s[0] == "arc":
+                return [s[1], s[3], s[4]]
+            (cx, cy), r = s[1], s[2]  # circle: its four quadrant points survive turning and flipping
+            return [(cx + r, cy), (cx - r, cy), (cx, cy + r), (cx, cy - r)]
+        loops = [[p for s in loop for p in points(s)] for loop in self.cutouts]
+        # A diameter without holes (an in-slot panel, or every hole left out) is not part of the part.
+        return fabrication.fingerprint(self.segments, self.holes, self.diameter if self.holes else 0.0, loops)
 
     def centre(self):
         us = [u for u, _v in self.corners]
@@ -309,13 +348,17 @@ def _cutout_segments(edge, lay):
 
 
 def _cutout_wires(obj, lay):
-    """Closed wires of the Cutouts sketch, after checking it lies parallel to the sheet."""
+    """Closed wires of the Cutouts sketch in world space, after checking it lies parallel to the sheet."""
     sketch = getattr(obj, "Cutouts", None)
     if sketch is None:
         return []
-    shape = sketch.Shape
+    # The sketch may sit in a Body or a Part with its own placement.
+    shape = sketch.Shape.copy()
+    shape.Placement = sketch.getGlobalPlacement()
+    if not shape.Edges:
+        return []  # an empty sketch, or only construction geometry
     heights = [(p - lay.origin).dot(lay.n) for e in shape.Edges for p in e.discretize(5)]
-    if not heights or max(heights) - min(heights) > 0.01:
+    if max(heights) - min(heights) > 0.01:
         raise ValueError(f"The cutout sketch {sketch.Label} must lie parallel to the panel")
     wires = [w for w in shape.Wires if w.isClosed()]
     if len(wires) < len(shape.Wires):
@@ -330,18 +373,20 @@ def drawing(obj, lay=None):
     segments, radius = fabrication.rounded_outline(lay.corners, obj.CornerRadius.Value)
     if obj.CornerRadius.Value > 0 and radius < obj.CornerRadius.Value - 1e-6:
         notes.append(f"corner radius reduced to {radius:.1f} mm to fit the shortest edge")
+    wires = _cutout_wires(obj, lay)
     holes, diameter = [], obj.HoleDiameter.Value
     if diameter > 0 and obj.Mount == "On face":
         lines, line_notes = slot_lines(obj, lay)
         keepouts = list(lay.corners) + _joint_points(obj, lay)
-        holes, hole_notes = fabrication.hole_layout(lines, lay.corners, diameter, obj.HoleSpacing.Value,
-                                                    max(obj.EdgeDistance.Value, diameter / 2), keepouts,
-                                                    obj.CornerKeepout.Value)
+        loops = [[lay.to2d(p) for p in wire.discretize(Deflection=0.05)] for wire in wires]
+        # Clip to the rounded outline, not the sharp corners, and keep holes out of the cutouts.
+        holes, hole_notes = fabrication.hole_layout(lines, fabrication.polygon_of(segments), diameter,
+                                                    obj.HoleSpacing.Value, max(obj.EdgeDistance.Value, diameter / 2),
+                                                    keepouts, obj.CornerKeepout.Value, loops)
         notes += line_notes + hole_notes
     elif diameter > 0:
         notes.append("holes are only placed on panels mounted on the face")
-    cutouts = [[seg for edge in wire.Edges for seg in _cutout_segments(edge, lay)]
-               for wire in _cutout_wires(obj, lay)]
+    cutouts = [[seg for edge in wire.Edges for seg in _cutout_segments(edge, lay)] for wire in wires]
     return Drawing(segments, lay.corners, radius, holes, diameter, cutouts, notes)
 
 
@@ -423,7 +468,15 @@ class Panel:
             "Which slot gets the holes where a face has several (a 2040 lying flat)", list(SLOT_CHOICES))
         add("App::PropertyLength", "CornerRadius", "Fabrication",
             "Rounded sheet corners (0: square). Rounding keeps acrylic from cracking at the corners", 0.0)
-        add("App::PropertyLink", "Cutouts", "Fabrication",
+        # A global link, so a sketch inside a Body or a Part can hold the cutouts. Panels saved
+        # with the first version had a plain link; it is replaced, keeping the sketch.
+        if "Cutouts" in obj.PropertiesList and obj.getTypeIdOfProperty("Cutouts") != "App::PropertyLinkGlobal":
+            sketch = obj.Cutouts
+            obj.removeProperty("Cutouts")
+            add("App::PropertyLinkGlobal", "Cutouts", "Fabrication",
+                "Sketch parallel to the sheet whose closed outlines are cut out (fans, cable glands)")
+            obj.Cutouts = sketch
+        add("App::PropertyLinkGlobal", "Cutouts", "Fabrication",
             "Sketch parallel to the sheet whose closed outlines are cut out (fans, cable glands)")
         add("App::PropertyLength", "Width", "Info", "Sheet size along the first profile", mode=1)
         add("App::PropertyLength", "Height", "Info", "Sheet size across the first profile", mode=1)
@@ -469,6 +522,8 @@ class Panel:
             tools.append(face.extrude(lay.n * (thickness + 2)))
         if tools:
             solid = solid.cut(Part.makeCompound(tools))
+            if not solid.Solids:
+                raise ValueError("The cutouts remove the whole sheet (is the frame's own sketch linked as Cutouts?)")
         corners = d.corners
         obj.Width = max(u for u, _v in corners) - min(u for u, _v in corners)
         obj.Height = max(v for _u, v in corners) - min(v for _u, v in corners)
@@ -502,7 +557,9 @@ class ViewProviderPanel:
 
     def claimChildren(self):
         sketch = getattr(self.Object, "Cutouts", None)
-        return [sketch] if sketch is not None else []
+        # A sketch inside a Body or Part stays there; claiming it would give it two parents.
+        free = sketch is not None and sketch.getParentGeoFeatureGroup() is None
+        return [sketch] if free else []
 
     def setEdit(self, vobj, mode=0):
         if mode != 0:
@@ -575,11 +632,13 @@ def thermal_fit(obj):
 
 
 def cold_fit(obj):
-    """Warning or None: does the sheet stay in its slots when it is coldest?
+    """Warning or None: does the sheet stay in its slots when it is smallest against the frame?
 
-    Worst case, the sheet rests against the bottom of the opposite slot (a
-    standing panel sits on its lower edge), is cut undersize, and has shrunk.
-    What is left in the slot must still reach past the slot lips.
+    That is at the lowest temperature, or at the highest for a sheet that expands
+    less than aluminium (glass, MDF, steel). Worst case, the sheet rests against
+    the bottom of the opposite slot (a standing panel sits on its lower edge), is
+    cut undersize, and has shrunk. What is left in the slot must still reach past
+    the slot lips.
     """
     if obj.Mount != "In slot":
         return None
@@ -621,17 +680,57 @@ def hole_play(obj, d=None):
     play = (obj.HoleDiameter.Value - obj.ScrewDiameter.Value) / 2
     if play + 1e-9 >= need:
         return need, play, None
+    # Round the advice up, so drilling what it says really passes the check.
+    drill = math.ceil((obj.ScrewDiameter.Value + 2 * need) * 10 - 1e-9) / 10
     return need, play, (f"{obj.Label}: the outer holes need {need:.2f} mm play around the screws, but "
                         f"Ø{obj.HoleDiameter.Value:g} holes for Ø{obj.ScrewDiameter.Value:g} screws leave "
-                        f"{play:.2f} mm; drill at least Ø{obj.ScrewDiameter.Value + 2 * need:.1f}")
+                        f"{play:.2f} mm; drill at least Ø{drill:.1f}")
+
+
+def fit_conflict(obj):
+    """Warning or None: no Clearance or InsertDepth can pass both the hot and the cold check.
+
+    With e the depth of the sheet edge past the profile face, the hot check needs
+    e <= SlotDepth - (growth + tolerance) / 2 and the cold check needs
+    e >= (SlotDepth + shrinkage + tolerance + lip) / 2. When the first bound is
+    below the second, every setting fails one of them, so the advice of either
+    check would only bring back the other.
+    """
+    if obj.Mount != "In slot":
+        return None
+    size = max(obj.Width.Value, obj.Height.Value)
+    grow, shrink = (rate * size for rate in relative_change(obj))
+    tolerance = _tolerance(obj)
+    for m in obj.Profiles:
+        if not feature.is_profile(m):
+            continue
+        depth = m.SlotDepth.Value
+        highest = depth - (grow + tolerance) / 2
+        lowest = (depth + shrink + tolerance + m.LipThickness.Value) / 2
+        if highest < lowest:
+            return (f"{obj.Label}: no Clearance or InsertDepth keeps this sheet in the slots of {m.Label} over the "
+                    f"temperature range (it grows {grow:.2f} mm and shrinks {shrink:.2f} mm against the frame, "
+                    f"which needs {2 * (lowest - highest):.2f} mm more slot depth); use deeper slots, a smaller "
+                    "or split sheet, a narrower temperature range, or mount it on the face")
+    return None
 
 
 def fit_warnings(obj, d=None):
     """All fit warnings of a panel, for the report."""
-    found = [thermal_fit(obj)[1], cold_fit(obj)]
+    conflict = fit_conflict(obj)
+    found = [conflict] if conflict else [thermal_fit(obj)[1], cold_fit(obj)]
     if obj.Mount == "On face":
         found.append(hole_play(obj, d)[2])
     return [w for w in found if w]
+
+
+def _loose_at(obj):
+    """Where the sheet is loosest: the lowest temperature, or the highest for a sheet that
+    expands less than aluminium (glass, MDF, steel), or none when only the geometry counts."""
+    if relative_change(obj)[1] <= 0:
+        return ""
+    t = obj.MaxTemperature if obj.Expansion < ALUMINIUM_EXPANSION else obj.MinTemperature
+    return f" at {t:g} °C"
 
 
 def slot_room(obj):
@@ -658,31 +757,38 @@ def panel_info(obj):
         text += f"<br>{len(d.holes)} holes Ø{d.diameter:g} on the slot centre lines"
     for note in d.notes:
         text += grey.format(html.escape(note[0].upper() + note[1:]))
-    if obj.Expansion <= 0:
+    known = obj.Expansion > 0
+    if not known:
         text += grey.format("Material not recognised: set Expansion to check the thermal fit")
-    range_text = f"between {obj.MinTemperature:g} and {obj.MaxTemperature:g} °C"
+    # Without a known expansion only the cut tolerance is checked, so name no temperatures.
+    range_text = f" between {obj.MinTemperature:g} and {obj.MaxTemperature:g} °C" if known else ""
+    what = "Fit" if known else "Cut tolerance fits; thermal fit not checked"
     if obj.Mount == "In slot":
         need, warning = thermal_fit(obj)
         room = slot_room(obj)
-        if warning:
-            text += orange.format(f"Too tight: needs {need:.2f} mm per side at the slot bottom "
-                                  f"(has {room:.2f}) {range_text}, cut tolerance included")
-        else:
-            text += f"<br>Fit OK ({need:.2f} of {room:.2f} mm room per side {range_text})"
+        conflict = fit_conflict(obj)
         cold = cold_fit(obj)
-        if cold:
-            text += orange.format("Too loose when cold: " + html.escape(cold.split(": ", 1)[1]))
+        if conflict:
+            text += orange.format(html.escape(conflict.split(": ", 1)[1]))
+        elif warning:
+            text += orange.format(f"Too tight: needs {need:.2f} mm per side at the slot bottom "
+                                  f"(has {room:.2f}){range_text}, cut tolerance included")
+        else:
+            text += f"<br>{what} ({need:.2f} of {room:.2f} mm room per side{range_text})"
+        if cold and not conflict:
+            text += orange.format(f"Too loose{_loose_at(obj)}: " + html.escape(cold.split(": ", 1)[1]))
         text += grey.format("Slide the sheet in before fitting the last profile around it")
     else:
         need, play, warning = hole_play(obj, d)
         if warning:
             text += orange.format(html.escape(warning.split(": ", 1)[1]))
         elif play is not None:
-            text += f"<br>Hole play OK ({need:.2f} of {play:.2f} mm needed at the outer holes)"
+            label = "Hole play OK" if known else "Hole play covers the cut tolerance; thermal fit not checked"
+            text += f"<br>{label}: {need:.2f} mm needed at the outer holes, {play:.2f} mm there"
         else:
             lead = "The outer holes need" if d.holes else "Holes near the corners would need"
-            text += grey.format(f"{lead} {need:.2f} mm play around the screws {range_text}; "
-                                "set ScrewDiameter to check")
+            tail = "set ScrewDiameter to check" if d.holes else "set HoleDiameter and ScrewDiameter to check"
+            text += grey.format(f"{lead} {need:.2f} mm play around the screws{range_text}; {tail}")
     return text
 
 
@@ -714,7 +820,8 @@ def export_unit():
 
 
 def _file_part(text):
-    return re.sub(r"[^A-Za-z0-9.+-]+", "_", fabrication._ascii(text)).strip("_")
+    """A file name from any text, keeping letters of every script ("Acrylglas_weiß")."""
+    return re.sub(r"[^\w.+-]+", "_", text).strip("_")
 
 
 def export_panels(doc, folder, marks, unit=None):
@@ -733,10 +840,14 @@ def export_panels(doc, folder, marks, unit=None):
         done.add(mark)
         d = drawing(obj)
         xmin, ymin, xmax, ymax = fabrication.bounds(d.segments)
-        size = min(5.0, (ymax - ymin) / 10)
         size_text = f"{(xmax - xmin) * scale:.2f} x {(ymax - ymin) * scale:.2f} {name}"
         label = f"{mark}  {sheet_key(obj)}  {size_text}" + (f"  {obj.HoleCount} holes" if d.holes else "")
-        texts = [(xmin + 3 * size, ymin + 3 * size, size, label)]
+        # Small enough to fit the sheet, clear of the corner rounding, and above the holes near the lower
+        # edge, so a service that engraves layer MARK does not engrave across a hole or off the part.
+        size = min(5.0, (ymax - ymin) / 10, (xmax - xmin) / (0.7 * len(label) + 6))
+        x0 = xmin + max(3 * size, d.radius)
+        y0 = max([ymin + 3 * size] + [v + d.diameter for _u, v in d.holes if v - ymin < 4 * size + d.diameter])
+        texts = [(x0, y0, size, label)]
         digits = 0 if name == "mm" else 2
         dims = f"{(xmax - xmin) * scale:.{digits}f}x{(ymax - ymin) * scale:.{digits}f}{name}"
         base = os.path.join(folder, _file_part(f"{mark} {sheet_key(obj)} {dims}"))

@@ -6,6 +6,11 @@ import tempfile
 
 import freecad
 
+# CI runners have no display: let Qt draw off screen, or creating a QApplication aborts the process.
+# It is set here, not in the job, because FreeCAD's AppRun overrides QT_QPA_PLATFORM.
+if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
 ROOT = os.getcwd()
 # FreeCAD may already have loaded an installed copy of the workbench (for
 # example through a link in its Mod folder) before this script runs. Drop it
@@ -737,6 +742,14 @@ money = pricing.format_money(1234.56, "$")
 check("$" in money and "234" in money and ("1,234.56" in money or "1.234,56" in money or "1 234,56" in money
                                           or "1 234,56" in money or "1 234,56" in money),
       f"money formatted by region ({money!r})")
+from PySide import QtCore  # noqa: E402
+us, india = QtCore.QLocale("en_US"), QtCore.QLocale("en_IN")
+# Large totals keep their cents on Qt 5 too (its bindings pick integer or single-precision overloads).
+check(pricing.money_in(us, 33554433.01, "$") == "$33,554,433.01" and pricing.money_in(us, -12.5, "$") == "-$12.50"
+      and pricing.money_in(india, 1234567.89, "₹") == "₹12,34,567.89",
+      # ascii(): a Windows console cannot print the rupee sign, and a failed print stops the script.
+      f"exact money in any region ({pricing.money_in(us, 33554433.01, '$')}, "
+      f"{ascii(pricing.money_in(india, 1234567.89, '₹'))})")
 
 # [16] A shallow insert leaves room at the slot bottom.
 sheet.Material = "Acrylic"
@@ -780,3 +793,7 @@ for variant in ("made in reverse", "lines drawn backwards"):
                                       f"({turned[variant][0]}, made forward {base})")
 
 print("\n%d failure(s)" % len(failures))
+
+# A non-zero exit code lets CI see failures; os._exit skips FreeCAD's own exit handling.
+sys.stdout.flush()
+os._exit(1 if failures else 0)

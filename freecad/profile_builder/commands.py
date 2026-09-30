@@ -10,6 +10,10 @@ from . import cutlist, feature, joints, panels, pricing, profiles
 from . import linear, linear_ui  # carriages
 from .feature import ICON_DIR
 
+QT_TRANSLATE_NOOP = App.Qt.QT_TRANSLATE_NOOP
+
+translate = App.Qt.translate
+
 
 def icon(name):
     return os.path.join(ICON_DIR, name)
@@ -72,9 +76,9 @@ class CreateProfile:
     def GetResources(self):
         return {
             "Pixmap": icon("CreateProfile.svg"),
-            "MenuText": "Profile...",
-            "ToolTip": ("Create an aluminium extrusion profile.\n"
-                        "Select straight edges (or a sketch) first to create one profile per edge."),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_Create", "Profile..."),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_Create", "Create an aluminium extrusion profile.\n"
+                        "Select straight edges (or a sketch) first to create one profile per edge.")),
         }
 
     def IsActive(self):
@@ -99,10 +103,11 @@ class QuickProfile:
         name = self.series.designation(self.cols, self.rows)
         return {
             "Pixmap": size_icon(self.key, self.cols, self.rows),
-            "MenuText": f"{name}",
-            "ToolTip": (f"Insert a {name} profile ({profiles.series_label(self.key)}).\n"
-                        "Uses the weight class and slot style you last picked in the Profile dialog.\n"
-                        "With straight edges selected, one profile is placed on each edge."),
+            "MenuText": name,
+            "ToolTip": translate("ProfileBuilder", "Insert a {name} profile ({series}).\n"
+                                 "Uses the weight class and slot style you last picked in the Profile dialog.\n"
+                                 "With straight edges selected, one profile is placed on each edge.").format(
+                                     name=name, series=profiles.series_label(self.key)),
         }
 
     def IsActive(self):
@@ -147,7 +152,8 @@ class SeriesGroup:
 
     def GetResources(self):
         label = profiles.series_label(self.key)
-        return {"MenuText": label, "ToolTip": f"Insert a {label} profile", "DropDownMenu": True}
+        return {"MenuText": label, "DropDownMenu": True,
+                "ToolTip": translate("ProfileBuilder", "Insert a {label} profile").format(label=label)}
 
     def IsActive(self):
         return Gui.Control.activeDialog() is False
@@ -157,13 +163,16 @@ class CutList:
     def GetResources(self):
         return {
             "Pixmap": icon("CutList.svg"),
-            "MenuText": "Cut list and costs",
-            "ToolTip": ("Create or update the 'Cut list' spreadsheet: pieces grouped by size and length,\n"
-                        "stock bar plan, sheets and the cost estimate"),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_CutList", "Cut list and costs"),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_CutList", "Create or update the 'Cut list' spreadsheet: pieces grouped by size and length,\n"
+                        "stock bar plan, sheets and the cost estimate")),
         }
 
     def IsActive(self):
-        return App.ActiveDocument is not None
+        # A task dialog's Cancel undoes its open transaction; the transaction opened here would
+        # commit it first, so wait until the dialog is closed.
+        return (Gui.Control.activeDialog() is False
+                and App.ActiveDocument is not None)
 
     def Activated(self):
         doc = App.ActiveDocument
@@ -179,6 +188,10 @@ class CutList:
             App.Console.PrintError(f"  Not in the cut list: {error}\n")
         for warning in report.warnings:
             App.Console.PrintMessage(f"  {warning}\n")
+        from .check_ui import quick_summary
+        issues = quick_summary(doc)
+        if issues:
+            App.Console.PrintWarning(f"Profile Builder: {issues}\n")
         Gui.Selection.clearSelection()
         Gui.Selection.addSelection(sheet)
 
@@ -187,12 +200,15 @@ class ExportCutList:
     def GetResources(self):
         return {
             "Pixmap": icon("ExportCutList.svg"),
-            "MenuText": "Export cut list (CSV)...",
-            "ToolTip": "Write the cut list of all profiles to a CSV file",
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_ExportCutList", "Export cut list (CSV)..."),
+            "ToolTip": QT_TRANSLATE_NOOP("ProfileBuilder_ExportCutList", "Write the cut list of all profiles to a CSV file"),
         }
 
     def IsActive(self):
-        return App.ActiveDocument is not None
+        # A task dialog's Cancel undoes its open transaction; the transaction opened here would
+        # commit it first, so wait until the dialog is closed.
+        return (Gui.Control.activeDialog() is False
+                and App.ActiveDocument is not None)
 
     def Activated(self):
         from PySide import QtCore, QtWidgets
@@ -239,9 +255,9 @@ class CreateJoints:
     def GetResources(self):
         return {
             "Pixmap": icon("Joint.svg"),
-            "MenuText": "Joints...",
-            "ToolTip": ("Create joints where profiles on sketch edges meet, so they butt or miter\n"
-                        "instead of overlapping. Uses the selected profiles, or all of them."),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_Joints", "Joints..."),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_Joints", "Create joints where profiles on sketch edges meet, so they butt or miter\n"
+                        "instead of overlapping. Uses the selected profiles, or all of them.")),
         }
 
     def IsActive(self):
@@ -254,13 +270,13 @@ class CreateJoints:
         targets = selected or [o for o in doc.Objects if feature.is_profile(o)]
         if not any(o.PathEdge for o in targets):
             QtWidgets.QMessageBox.information(
-                Gui.getMainWindow(), "Joints",
-                "Joints connect profiles that follow sketch edges.\n"
-                "Select a sketch and insert profiles on its edges first.")
+                Gui.getMainWindow(), translate("ProfileBuilder", "Joints"),
+                translate("ProfileBuilder", "Joints connect profiles that follow sketch edges.\n"
+                "Select a sketch and insert profiles on its edges first."))
             return
         labels = [label for label, _t, _r in JOINT_STYLES]
         choice, ok = QtWidgets.QInputDialog.getItem(
-            Gui.getMainWindow(), "Joints", "How should the profiles meet?", labels, 0, False)
+            Gui.getMainWindow(), translate("ProfileBuilder", "Joints"), translate("ProfileBuilder", "How should the profiles meet?"), labels, 0, False)
         if not ok:
             return
         _label, joint_type, rule = JOINT_STYLES[labels.index(choice)]
@@ -279,9 +295,9 @@ class RunThrough:
     def GetResources(self):
         return {
             "Pixmap": icon("RunThrough.svg"),
-            "MenuText": "Run through",
-            "ToolTip": ("Make the selected profiles run through all their butt joints;\n"
-                        "the profiles they meet are trimmed against them instead."),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_RunThrough", "Run through"),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_RunThrough", "Make the selected profiles run through all their butt joints;\n"
+                        "the profiles they meet are trimmed against them instead.")),
         }
 
     def IsActive(self):
@@ -301,9 +317,9 @@ class SwapJoint:
     def GetResources(self):
         return {
             "Pixmap": icon("SwapJoint.svg"),
-            "MenuText": "Swap joint",
-            "ToolTip": ("Let the other profile run through the selected butt joint(s).\n"
-                        "Select the joint (orange dot or tree item), or a profile to swap both its ends."),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_SwapJoint", "Swap joint"),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_SwapJoint", "Let the other profile run through the selected butt joint(s).\n"
+                        "Select the joint (orange dot or tree item), or a profile to swap both its ends.")),
         }
 
     def IsActive(self):
@@ -331,9 +347,9 @@ class CreatePanel:
     def GetResources(self):
         return {
             "Pixmap": icon("Panel.svg"),
-            "MenuText": "Panel...",
-            "ToolTip": ("Create a sheet panel in the opening between the selected profiles\n"
-                        "(at least three, in one plane), e.g. an enclosure side."),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_Panel", "Panel..."),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_Panel", "Create a sheet panel in the opening between the selected profiles\n"
+                        "(at least three, in one plane), e.g. an enclosure side.")),
         }
 
     def IsActive(self):
@@ -343,8 +359,11 @@ class CreatePanel:
     def Activated(self):
         doc = App.ActiveDocument
         members = [o for o in Gui.Selection.getSelection() if feature.is_profile(o)]
-        # A sketch selected with the profiles holds the cutouts.
-        sketches = [o for o in Gui.Selection.getSelection() if o.TypeId == "Sketcher::SketchObject"]
+        # A sketch selected with the profiles holds the cutouts, but not the sketch the profiles
+        # follow (a box selection often catches it), which would cut away the whole sheet.
+        paths = {m.PathEdge[0].Name for m in members if m.PathEdge}
+        sketches = [o for o in Gui.Selection.getSelection()
+                    if o.TypeId == "Sketcher::SketchObject" and o.Name not in paths]
         doc.openTransaction("Create panel")
         panel = panels.make_panel(doc, members, cutouts=sketches[0] if sketches else None)
         doc.recompute()
@@ -353,11 +372,17 @@ class CreatePanel:
         Gui.ActiveDocument.setEdit(panel, 0)
 
 
-def _refresh_marks(doc, title):
-    """Build the report and store its marks, in one undoable step; returns the report."""
+def _refresh_marks(doc, title, renumber=False):
+    """Build the report and store its marks, in one undoable step; returns the report.
+
+    With ``renumber``, the marks given so far are forgotten first, in the same
+    step, so one undo brings back the old marks on the model and in the store.
+    """
     cutlist.recompute_if_needed(doc)
-    report = cutlist.build_report(doc)
     doc.openTransaction(title)
+    if renumber:
+        cutlist.renumber_marks(doc)
+    report = cutlist.build_report(doc)
     cutlist.apply_marks(doc, report)
     sheet = doc.getObject("CutList")
     if sheet is not None and sheet.TypeId == "Spreadsheet::Sheet":
@@ -370,13 +395,16 @@ class ShowMarks:
     def GetResources(self):
         return {
             "Pixmap": icon("PieceMarks.svg"),
-            "MenuText": "Show piece marks",
-            "ToolTip": ("Show or hide the piece marks (A1, A2, ...) in the 3D view, on the selected profiles\n"
-                        "or on all of them. Showing them brings the marks up to date first."),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_ShowMarks", "Show piece marks"),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_ShowMarks", "Show or hide the piece marks (A1, A2, ...) in the 3D view, on the selected profiles\n"
+                        "or on all of them. Showing them brings the marks up to date first.")),
         }
 
     def IsActive(self):
-        return App.ActiveDocument is not None and any(feature.is_profile(o) for o in App.ActiveDocument.Objects)
+        # A task dialog's Cancel undoes its open transaction; the transaction opened here would
+        # commit it first, so wait until the dialog is closed.
+        return (Gui.Control.activeDialog() is False
+                and App.ActiveDocument is not None and any(feature.is_profile(o) for o in App.ActiveDocument.Objects))
 
     def Activated(self):
         doc = App.ActiveDocument
@@ -392,20 +420,20 @@ class ShowMarks:
 class RenumberMarks:
     def GetResources(self):
         return {
-            "MenuText": "Renumber piece marks",
-            "ToolTip": ("Number all pieces again from A1, and sheets from P-1, closing the gaps that edits leave.\n"
-                        "Marks otherwise stay put; after renumbering, labels printed earlier no longer match."),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_RenumberMarks", "Renumber piece marks"),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_RenumberMarks", "Number all pieces again from A1, and sheets from P-1, closing the gaps that edits leave.\n"
+                        "Marks otherwise stay put; after renumbering, labels printed earlier no longer match.")),
         }
 
     def IsActive(self):
-        return App.ActiveDocument is not None
+        # A task dialog's Cancel undoes its open transaction; the transaction opened here would
+        # commit it first, so wait until the dialog is closed.
+        return (Gui.Control.activeDialog() is False
+                and App.ActiveDocument is not None)
 
     def Activated(self):
         doc = App.ActiveDocument
-        doc.openTransaction("Renumber piece marks")
-        cutlist.renumber_marks(doc)
-        doc.commitTransaction()
-        _refresh_marks(doc, "Renumber piece marks")
+        _refresh_marks(doc, translate("ProfileBuilder", "Renumber piece marks"), renumber=True)
         App.Console.PrintMessage("Profile Builder: piece marks renumbered\n")
 
 
@@ -413,13 +441,16 @@ class ExportPanels:
     def GetResources(self):
         return {
             "Pixmap": icon("ExportPanels.svg"),
-            "MenuText": "Export panels (DXF/SVG)...",
-            "ToolTip": ("Write a DXF and an SVG file for each different sheet, for laser cutting or CNC routing.\n"
-                        "The unit (mm or inch) follows FreeCAD's unit system and is in each file name."),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_ExportPanels", "Export panels (DXF/SVG)..."),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_ExportPanels", "Write a DXF and an SVG file for each different sheet, for laser cutting or CNC routing.\n"
+                        "The unit (mm or inch) follows FreeCAD's unit system and is in each file name.")),
         }
 
     def IsActive(self):
-        return App.ActiveDocument is not None and any(panels.is_panel(o) for o in App.ActiveDocument.Objects)
+        # A task dialog's Cancel undoes its open transaction; the transaction opened here would
+        # commit it first, so wait until the dialog is closed.
+        return (Gui.Control.activeDialog() is False
+                and App.ActiveDocument is not None and any(panels.is_panel(o) for o in App.ActiveDocument.Objects))
 
     def Activated(self):
         from PySide import QtWidgets
@@ -440,8 +471,8 @@ class Pricing:
     def GetResources(self):
         return {
             "Pixmap": icon("Pricing.svg"),
-            "MenuText": "Pricing and stock...",
-            "ToolTip": "Prices per metre and m², stock bar lengths, cutting, delivery and tax",
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_Pricing", "Pricing and stock..."),
+            "ToolTip": QT_TRANSLATE_NOOP("ProfileBuilder_Pricing", "Prices per metre and m², stock bar lengths, cutting, delivery and tax"),
         }
 
     def IsActive(self):
@@ -468,8 +499,9 @@ def register():
     from .frame_ui import FrameStiffness
     Gui.addCommand("ProfileBuilder_FrameStiffness", FrameStiffness())
     Gui.addCommand("ProfileBuilder_Carriage", linear_ui.CreateCarriage())
-    from . import brackets_ui
+    from . import brackets_ui, check_ui
     brackets_ui.register()
+    check_ui.register()
     groups = []
     for key, series in profiles.SERIES.items():
         names = []

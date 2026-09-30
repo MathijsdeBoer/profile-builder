@@ -10,6 +10,9 @@ from . import feature, joints, linear, panels
 from .feature import ICON_DIR
 from .simple_panel import PropertyTaskPanel
 
+QT_TRANSLATE_NOOP = App.Qt.QT_TRANSLATE_NOOP
+translate = App.Qt.translate
+
 FIELDS = ("Face", "CarriageLength", "EnvelopeWidth", "EnvelopeHeight", "Wrap", "EndStopLength",
           "RequiredStroke", "Run", "PositionMode", "PositionPercent", "Position",
           "BeltItem", "BeltPitch", "PulleyTeeth", "PulleyDiameter", "PulleyCentres", "ClampAllowance")
@@ -36,7 +39,7 @@ class CarriageTaskPanel(PropertyTaskPanel):
         for name in ("PositionPercent", "Position"):
             label = layout.labelForField(self.widgets[name])
             if label is not None:
-                label.setText("Position")
+                label.setText(translate("ProfileBuilder", "Position"))
         self.widgets["PositionMode"].currentIndexChanged.connect(self._show_mode)
         self._show_mode()
 
@@ -69,10 +72,10 @@ class CreateCarriage:
     def GetResources(self):
         return {
             "Pixmap": os.path.join(ICON_DIR, "Carriage.svg"),
-            "MenuText": "Carriage...",
-            "ToolTip": ("Add a carriage that runs along the selected profile, and get its clear run and stroke.\n"
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_Carriage", "Carriage..."),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_Carriage", "Add a carriage that runs along the selected profile, and get its clear run and stroke.\n"
                         "Click the face it runs on to choose that side. Also select a solid (for example an\n"
-                        "imported STEP carriage) to show it instead of the placeholder box."),
+                        "imported STEP carriage) to show it instead of the placeholder box.")),
         }
 
     def IsActive(self):

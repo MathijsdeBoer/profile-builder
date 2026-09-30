@@ -12,6 +12,9 @@ from . import cutlist
 from . import frame_stiffness as fs
 from .feature import ICON_DIR
 
+QT_TRANSLATE_NOOP = App.Qt.QT_TRANSLATE_NOOP
+translate = App.Qt.translate
+
 SUPPORT_TEXT = {"Pinned": "Pinned (standing on feet or the floor)", "Fixed": "Fixed (bolted down stiffly)"}
 
 
@@ -25,10 +28,10 @@ class FrameStiffness:
     def GetResources(self):
         return {
             "Pixmap": os.path.join(ICON_DIR, "FrameStiffness.svg"),
-            "MenuText": "Frame stiffness...",
-            "ToolTip": ("Estimate how stiff the frame is sideways and in twist, and its first natural\n"
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_FrameStiffness", "Frame stiffness..."),
+            "ToolTip": (QT_TRANSLATE_NOOP("ProfileBuilder_FrameStiffness", "Estimate how stiff the frame is sideways and in twist, and its first natural\n"
                         "frequencies, as a range between loose and stiff joints.\n"
-                        "Store a baseline to compare design variants."),
+                        "Store a baseline to compare design variants.")),
         }
 
     def IsActive(self):
@@ -54,15 +57,15 @@ class FrameStiffnessPanel:
 
         s = self.settings
         form = QtWidgets.QWidget()
-        form.setWindowTitle("Frame stiffness")
+        form.setWindowTitle(translate("ProfileBuilder", "Frame stiffness"))
         layout = QtWidgets.QVBoxLayout(form)
         intro = QtWidgets.QLabel(
-            "<b>Estimates.</b> The stiffness of T-slot joints is not known, so every value is a range "
-            "between loose joints and stiff joints. Compare designs rather than trusting single numbers.")
+            translate("ProfileBuilder", "<b>Estimates.</b> The stiffness of T-slot joints is not known, so every value is a range "
+            "between loose joints and stiff joints. Compare designs rather than trusting single numbers."))
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        box = QtWidgets.QGroupBox("Assumptions")
+        box = QtWidgets.QGroupBox(translate("ProfileBuilder", "Assumptions"))
         grid = QtWidgets.QFormLayout(box)
         self.loose = QtWidgets.QDoubleSpinBox()
         self.loose.setRange(0.01, 100)
@@ -96,10 +99,10 @@ class FrameStiffnessPanel:
             w.valueChanged.connect(self.changed)
         self.supports.currentIndexChanged.connect(self.changed)
         self.top_mass.editingFinished.connect(self._mass_edited)
-        grid.addRow("Loose joints", self.loose)
-        grid.addRow("Stiff joints", self.stiff)
-        grid.addRow("Supports (lowest nodes)", self.supports)
-        grid.addRow("Mass on top", self.top_mass)
+        grid.addRow(translate("ProfileBuilder", "Loose joints"), self.loose)
+        grid.addRow(translate("ProfileBuilder", "Stiff joints"), self.stiff)
+        grid.addRow(translate("ProfileBuilder", "Supports (lowest nodes)"), self.supports)
+        grid.addRow(translate("ProfileBuilder", "Mass on top"), self.top_mass)
         layout.addWidget(box)
 
         self.view = QtWidgets.QLabel()
@@ -109,13 +112,13 @@ class FrameStiffnessPanel:
         layout.addWidget(self.view)
 
         buttons = QtWidgets.QHBoxLayout()
-        self.set_button = QtWidgets.QPushButton("Set as baseline")
-        self.set_button.setToolTip("Store these results in the document, to compare later variants with")
+        self.set_button = QtWidgets.QPushButton(translate("ProfileBuilder", "Set as baseline"))
+        self.set_button.setToolTip(translate("ProfileBuilder", "Store these results in the document, to compare later variants with"))
         self.set_button.clicked.connect(self.set_baseline)
-        self.clear_button = QtWidgets.QPushButton("Clear baseline")
+        self.clear_button = QtWidgets.QPushButton(translate("ProfileBuilder", "Clear baseline"))
         self.clear_button.clicked.connect(self.clear_baseline)
-        report = QtWidgets.QPushButton("Print report")
-        report.setToolTip("Write the results to the report view")
+        report = QtWidgets.QPushButton(translate("ProfileBuilder", "Print report"))
+        report.setToolTip(translate("ProfileBuilder", "Write the results to the report view"))
         report.clicked.connect(self.print_report)
         for b in (self.set_button, self.clear_button, report):
             buttons.addWidget(b)

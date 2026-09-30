@@ -2,11 +2,24 @@
 
 | | |
 |---|---|
-| Status | Planned |
+| Status | Done |
 | Category | FreeCAD integration & UX |
 | Effort | M (first estimate M) |
 | Value | high |
 | Proposed from | freecad-ux |
+
+## Status
+
+Done on 2026-09-30:
+- COPYING (GPL-3.0) and COPYING.LESSER (LGPL-3.0), the licence package.xml already declared. The texts are the official ones from gnu.org.
+- package.xml: repository, bugtracker and readme URLs, pythonmin 3.8 (checked with vermin), numpy and scipy as optional Python dependencies, version 0.2.0. A pytest test keeps the version equal to `__version__` and checks the files it names. CHANGELOG.md.
+- `freecadmin` is now 1.0. The suites were run on the Linux AppImages of 0.21.2, 1.0.2 and 1.1.4: 0.21.2 fails four sketch-edit tests because it has no topological naming. On 1.0.2 this found two real bugs, both fixed: every amount lost its cents (the Qt 5 bindings pick an integer overload of `toCurrencyString`), and moments showed as energy ("J").
+- GitHub Actions (`.github/workflows/tests.yml`): pytest, plus every FreeCAD script on the 1.0.2 and 1.1.4 AppImages. The scripts exit non-zero on a failure, and because `freecadcmd` exits 0 when a script raises, each step also needs the final `0 failure(s)` line.
+- Translation groundwork: command texts, the workbench, toolbar and menu names, property tooltips and the task-panel texts are marked. `tools/update_translations.py` (pure Python) writes the Qt Linguist template, and `init_gui` registers the translations folder. A test fails on f-strings passed for translation and on a stale template.
+
+A review found and fixed: CI would have crashed on the headless runners (tests that open a QApplication now draw off screen), the translation tool emptied a language file before reading it, amounts on Qt 5 still lost cents above 131072 (single-precision overload) and ignored native digits, seven property tooltips were built at run time and so could never be translated, and the workbench name was never looked up. All suites were then run headless on FreeCAD 1.0.2 and 1.1.4 in WSL, as CI runs them.
+
+Not done: the actual translations, which need translators; messages in the report view, the cut list and the frame check findings are still English only; and a submission to the FreeCAD addon index, which is the maintainer's call.
 
 ## Problem
 

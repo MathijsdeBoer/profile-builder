@@ -6,6 +6,8 @@ from PySide import QtCore, QtWidgets
 
 from . import feature, profiles
 
+translate = App.Qt.translate
+
 PARAMS = "User parameter:BaseApp/Preferences/Mod/ProfileBuilder"
 CUSTOM = "Custom"
 DIM_LABELS = {"VChamfer": "V chamfer", "BoreDiameter": "Centre bore"}
@@ -104,74 +106,74 @@ class ProfileTaskPanel:
         layout = QtWidgets.QFormLayout(main)
 
         self.series = _combo([(profiles.series_label(k), k) for k in profiles.SERIES])
-        layout.addRow("Series", self.series)
+        layout.addRow(translate("ProfileBuilder", "Series"), self.series)
         self.weight = _combo([(w, w) for w in profiles.WEIGHTS])
         for i, w in enumerate(profiles.WEIGHTS):
             self.weight.setItemData(i, profiles.WEIGHT_TIPS[w], QtCore.Qt.ToolTipRole)
-        layout.addRow("Weight", self.weight)
+        layout.addRow(translate("ProfileBuilder", "Weight"), self.weight)
 
         self.size = QtWidgets.QComboBox()
-        layout.addRow("Size", self.size)
+        layout.addRow(translate("ProfileBuilder", "Size"), self.size)
         grid = QtWidgets.QHBoxLayout()
         self.cols = QtWidgets.QSpinBox()
         self.cols.setRange(1, 20)
         self.rows = QtWidgets.QSpinBox()
         self.rows.setRange(1, 20)
-        grid.addWidget(QtWidgets.QLabel("Cells X"))
+        grid.addWidget(QtWidgets.QLabel(translate("ProfileBuilder", "Cells X")))
         grid.addWidget(self.cols)
-        grid.addWidget(QtWidgets.QLabel("Y"))
+        grid.addWidget(QtWidgets.QLabel(translate("ProfileBuilder", "Y")))
         grid.addWidget(self.rows)
         layout.addRow("", grid)
 
         self.style = _combo([(s, s) for s in profiles.SLOT_STYLES])
-        layout.addRow("Slot style", self.style)
+        layout.addRow(translate("ProfileBuilder", "Slot style"), self.style)
 
         self.preset = _combo([(name, name) for name, _faces in profiles.SLOT_PRESETS] + [(CUSTOM, CUSTOM)])
-        layout.addRow("Slots", self.preset)
+        layout.addRow(translate("ProfileBuilder", "Slots"), self.preset)
         faces = QtWidgets.QGridLayout()
         self.closed = {}
         for i, face in enumerate(profiles.FACES):
             box = QtWidgets.QCheckBox(face)
             self.closed[face] = box
             faces.addWidget(box, i // 2, i % 2)
-        layout.addRow("Closed faces", faces)
+        layout.addRow(translate("ProfileBuilder", "Closed faces"), faces)
 
-        self.bore = QtWidgets.QCheckBox("Centre bore")
-        self.corner = QtWidgets.QCheckBox("Corner chambers")
+        self.bore = QtWidgets.QCheckBox(translate("ProfileBuilder", "Centre bore"))
+        self.corner = QtWidgets.QCheckBox(translate("ProfileBuilder", "Corner chambers"))
         row = QtWidgets.QHBoxLayout()
         row.addWidget(self.bore)
         row.addWidget(self.corner)
         layout.addRow("", row)
 
         self.length = _spin(obj.Length.Value, 1, 100000, step=10)
-        layout.addRow("Length", self.length)
+        layout.addRow(translate("ProfileBuilder", "Length"), self.length)
         if self.edge_mode:
             self.length.setEnabled(False)
-            self.length.setToolTip("Taken from the path edge")
+            self.length.setToolTip(translate("ProfileBuilder", "Taken from the path edge"))
             self.extend_start = _spin(0, -10000, 10000)
             self.extend_end = _spin(0, -10000, 10000)
             self.spin = _spin(0, -360, 360, suffix=" °", decimals=1, step=90)
-            layout.addRow("Extend start", self.extend_start)
-            layout.addRow("Extend end", self.extend_end)
-            layout.addRow("Spin", self.spin)
+            layout.addRow(translate("ProfileBuilder", "Extend start"), self.extend_start)
+            layout.addRow(translate("ProfileBuilder", "Extend end"), self.extend_end)
+            layout.addRow(translate("ProfileBuilder", "Spin"), self.spin)
         self.anchor = _combo([(a, a) for a in profiles.ANCHORS])
-        layout.addRow("Anchor", self.anchor)
+        layout.addRow(translate("ProfileBuilder", "Anchor"), self.anchor)
 
         self.miter_start = _spin(0, -79, 79, suffix=" °", decimals=1, step=5)
         self.miter_end = _spin(0, -79, 79, suffix=" °", decimals=1, step=5)
         self.miter_across = _combo([(a, a) for a in profiles.MITER_ACROSS])
-        layout.addRow("Miter start", self.miter_start)
-        layout.addRow("Miter end", self.miter_end)
-        layout.addRow("Miter across", self.miter_across)
+        layout.addRow(translate("ProfileBuilder", "Miter start"), self.miter_start)
+        layout.addRow(translate("ProfileBuilder", "Miter end"), self.miter_end)
+        layout.addRow(translate("ProfileBuilder", "Miter across"), self.miter_across)
 
         self.info = QtWidgets.QLabel()
         self.info.setWordWrap(True)
         layout.addRow(self.info)
 
         dims = QtWidgets.QWidget()
-        dims.setWindowTitle("Section dimensions")
+        dims.setWindowTitle(translate("ProfileBuilder", "Section dimensions"))
         dlayout = QtWidgets.QFormLayout(dims)
-        note = QtWidgets.QLabel("Defaults of the series; override to match a specific manufacturer.")
+        note = QtWidgets.QLabel(translate("ProfileBuilder", "Defaults of the series; override to match a specific manufacturer."))
         note.setWordWrap(True)
         dlayout.addRow(note)
         self.dims = {}
@@ -180,7 +182,7 @@ class ProfileTaskPanel:
             box.setToolTip(tip)
             self.dims[name] = box
             dlayout.addRow(DIM_LABELS.get(name) or _split_camel(name), box)
-        reset = QtWidgets.QPushButton("Reset to series defaults")
+        reset = QtWidgets.QPushButton(translate("ProfileBuilder", "Reset to series defaults"))
         reset.clicked.connect(self._reset_dims)
         dlayout.addRow(reset)
 

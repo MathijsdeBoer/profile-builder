@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Partly done |
+| Status | Done |
 | Category | Analysis |
 | Effort | L (first estimate M) |
 | Value | high |
@@ -10,7 +10,20 @@
 
 ## Status
 
-Done: broken profiles, joints and panels are listed at the top of the cut list and the total is marked incomplete; near-miss vertices are reported when creating joints; inserting twice on the same edges is prevented. Not done: the frame check command with clash detection and a findings list.
+Done: broken profiles, joints and panels are listed at the top of the cut list and the total is marked incomplete; near-miss vertices are reported when creating joints; inserting twice on the same edges is prevented.
+
+Done on 2026-09-30: the **Check frame** command (`check.py`, `check_ui.py`) lists findings by severity. Clicking one selects its objects and zooms to them. It checks:
+- broken objects;
+- two profiles on one edge (Fix: delete the extra ones);
+- ends that meet or nearly meet another profile or joint without a joint (Fix: join; the panel says the real fix is the sketch);
+- overlaps between profiles and panels, on each profile's outer box with its real length and miters, leaving out a panel in its own slots;
+- panel fit warnings and drawing notes, carriage warnings, and pieces longer than a stock bar;
+- lengths that differ by less than 1 mm, sketch edges without a profile, and the outside size.
+Distances follow the unit schema; small gaps are written with enough digits to mean something in inches too. The Cut list command prints a one-line summary of the quick checks. A 12-profile cube checks in 0.1 s.
+
+A review of the first version found five defects, all fixed with tests: the join fix could turn a near-miss corner into a T-junction, a three-way near miss offered a fix that could never work, the duplicate fix could delete the copy a panel uses, collinear bars were reported as overlapping, and small gaps printed as 0 in inch schemas.
+
+Not done: a temporary 3D highlight (selection is used instead), panels whose members are no longer coplanar (they already fail with an error), and a check when inserting on an edge that already has a profile (inserting skips such edges instead).
 
 ## Problem
 

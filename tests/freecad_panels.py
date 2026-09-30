@@ -18,7 +18,7 @@ import FreeCAD as App  # noqa: E402
 import Part  # noqa: E402
 import Sketcher  # noqa: E402,F401
 
-from freecad.profile_builder import cutlist, feature, joints, panels  # noqa: E402
+from freecad.profile_builder import cutlist, fabrication, feature, joints, panels  # noqa: E402
 
 _loaded = os.path.normcase(os.path.realpath(feature.__file__))
 if not _loaded.startswith(os.path.normcase(os.path.realpath(ROOT))):
@@ -219,7 +219,7 @@ slot.Clearance = 2
 doc.recompute()
 cold = panels.cold_fit(slot)
 check(cold is not None and "lips" in cold and "can come out" in cold, f"too much clearance: the sheet can come out ({cold})")
-check("Too loose when cold" in panels.panel_info(slot), "the dialog says so")
+check("Too loose at -40 °C" in panels.panel_info(slot), "the dialog says so, and names the temperature")
 glass = panels.make_panel(doc, ring, Thickness=3, Material="Glass", MinTemperature=20, MaxTemperature=80)
 doc.recompute()
 check(panels.relative_change(glass)[0] == 0 and panels.relative_change(glass)[1] > 0,
@@ -263,6 +263,200 @@ check(sorted(set(report.marks.values())) == ["A1", "A2", "A3", "B1"], f"renumber
 App.closeDocument(mdoc.Name)
 os.remove(path)
 
+# --- Review fixes -------------------------------------------------------------------------------
+rdoc = App.newDocument("pbreview")
+doc = rdoc  # lines_object() and frame() use it
+ring = frame("R", 400, 300)
+fans = []
+for r in (20, 40):
+    fan = rdoc.addObject("Sketcher::SketchObject", f"Fan{r}")
+    fan.addGeometry(Part.Circle(V(200, 150, 0), V(0, 0, 1), r))
+    fans.append(fan)
+rdoc.recompute()
+small, large = (panels.make_panel(rdoc, ring, cutouts=f, Mount="On face") for f in fans)
+plain_slot = panels.make_panel(rdoc, ring)
+holed_slot = panels.make_panel(rdoc, ring, HoleDiameter=5)
+rdoc.recompute()
+report = cutlist.build_report(rdoc)
+check(report.marks[small.Name] != report.marks[large.Name], "fan holes of different sizes are different sheets")
+check(report.marks[plain_slot.Name] == report.marks[holed_slot.Name],
+      "a hole diameter without holes does not make another sheet")
+
+acrylic = panels.make_panel(rdoc, ring, Mount="On face", HoleDiameter=5.5, ScrewDiameter=5, MaxTemperature=42)
+rdoc.recompute()
+warning = panels.hole_play(acrylic)[2] or ""
+drill = float(warning.rsplit("Ø", 1)[1]) if "drill at least" in warning else 0
+acrylic.HoleDiameter = drill
+rdoc.recompute()
+check(drill and panels.hole_play(acrylic)[2] is None, f"drilling the advised Ø{drill} passes the check")
+acrylic.HoleDiameter = 0
+rdoc.recompute()
+check("set HoleDiameter and ScrewDiameter" in panels.panel_info(acrylic), "without holes the dialog asks for both")
+
+unknown = panels.make_panel(rdoc, ring, Material="PVC foam")
+rdoc.recompute()
+info = panels.panel_info(unknown)
+check("thermal fit not checked" in info and "°C)" not in info, f"unknown material: no temperatures claimed ({info})")
+
+big = frame("Big", 1220, 800)
+hot = panels.make_panel(rdoc, big, MinTemperature=0, MaxTemperature=70)
+rdoc.recompute()
+found = panels.fit_warnings(hot)
+check(len(found) == 1 and "no Clearance or InsertDepth" in found[0], f"an impossible fit says so once ({found})")
+check("raise Clearance" not in panels.panel_info(hot) and "lower Clearance" not in panels.panel_info(hot),
+      "and gives no advice that brings back the other warning")
+glass = panels.make_panel(rdoc, big, Material="Glass", MinTemperature=20, MaxTemperature=80, Clearance=2)
+rdoc.recompute()
+check("Too loose at 80 °C" in panels.panel_info(glass), "glass is loosest when hot")
+
+out = tempfile.mkdtemp(prefix="pb_review_")
+try:
+    onface = panels.make_panel(rdoc, frame("F40", 500, 400, 1, 1), Mount="On face", HoleDiameter=5.5,
+                               Material="Acrylglas weiß")
+    rdoc.recompute()
+    written = panels.export_panels(rdoc, out, {onface.Name: "P-7"}, unit=("mm", 1.0))
+    check("weiß" in os.path.basename(written[0]), f"file names keep the material ({os.path.basename(written[0])})")
+    lines = open(written[0], encoding="ascii").read().split("\n")
+    i = lines.index("TEXT")
+    text_y = float(lines[i + 6])
+    d = panels.drawing(onface)
+    ymin = fabrication.bounds(d.segments)[1]
+    low = [v - ymin for _u, v in d.holes if v - ymin < 30]
+    check(all(text_y > h + d.diameter / 2 for h in low), f"the label sits above the lower holes ({text_y}, {low[:2]})")
+    check("weiss" in lines[i + 12], f"DXF text spells out ß ({lines[i + 12]})")
+finally:
+    shutil.rmtree(out, ignore_errors=True)
+
+# An L-shaped sheet gets holes on every side, all on the sheet.
+lshape = lines_object("LShape", [((0, 0, 0), (400, 0, 0)), ((400, 0, 0), (400, 200, 0)), ((400, 200, 0), (200, 200, 0)),
+                                 ((200, 200, 0), (200, 400, 0)), ((200, 400, 0), (0, 400, 0)), ((0, 400, 0), (0, 0, 0))])
+rdoc.recompute()
+lmembers = [feature.make_profile("20-6", 1, 1, 100, rdoc, edge=(lshape, f"Edge{i + 1}")) for i in range(6)]
+rdoc.recompute()
+joints.create_joints(rdoc, lmembers)
+lpanel = panels.make_panel(rdoc, lmembers, Mount="On face", HoleDiameter=5)
+rdoc.recompute()
+d = panels.drawing(lpanel)
+outline = fabrication.polygon_of(d.segments)
+on_side = {m.Label for m in lmembers for h in world_holes(lpanel)
+           if feature.path_edge(m).distToShape(Part.Vertex(V(h.x, h.y, 0)))[0] < 1e-6}
+check(len(on_side) == 6 and all(fabrication.inside(h, outline) for h in d.holes) and not d.notes,
+      f"an L-shaped sheet has holes on all six sides ({len(on_side)}, {d.notes})")
+
+# Rounded corners: no hole off the sheet or too close to its edge.
+round80 = panels.make_panel(rdoc, ring, Mount="On face", HoleDiameter=5, CornerRadius=80)
+rdoc.recompute()
+d = panels.drawing(round80)
+outline = fabrication.polygon_of(d.segments)
+check(d.holes and all(fabrication.inside(h, outline) and fabrication._to_polygon(h, outline) >= 7.9 for h in d.holes),
+      f"holes stay on a sheet with large rounded corners ({len(d.holes)})")
+
+# A mitered frame of flat 2080: the inner slots end at the miter, so no hole lands on solid metal.
+for cols, rows in ((4, 1), (1, 4)):
+    # Away from the other test frames, so its corners do not join theirs.
+    y = 5000 + 1000 * cols
+    wide = lines_object(f"Wide{cols}", [((0, y, 0), (800, y, 0)), ((800, y, 0), (800, y + 600, 0)),
+                                        ((800, y + 600, 0), (0, y + 600, 0)), ((0, y + 600, 0), (0, y, 0))])
+    rdoc.recompute()
+    wmembers = [feature.make_profile("20-6", cols, rows, 100, rdoc, edge=(wide, f"Edge{i + 1}")) for i in range(4)]
+    rdoc.recompute()
+    joints.create_joints(rdoc, wmembers, joint_type="Miter")
+    wpanel = panels.make_panel(rdoc, wmembers, Mount="On face", HoleDiameter=5, SlotChoice="All", CornerKeepout=10)
+    rdoc.recompute()
+    if len(panels.slot_lines(wpanel, panels.layout(wpanel))[0]) == 16:
+        lay = panels.layout(wpanel)
+        down = -lay.n if lay.lift > 0 else lay.n
+        solid = [h for h in world_holes(wpanel) if any(m.Shape.isInside(h + down * 1.0, 1e-6, True) for m in wmembers)]
+        check(wpanel.HoleCount > 0 and not solid, f"mitered flat 2080: no holes over solid metal ({len(solid)})")
+        break
+
+# Profiles anchored off the sketch plane still keep holes away from their joints.
+aring = frame("Anchored", 400, 300)
+for m in aring:
+    m.Anchor = "Bottom center" if "Bottom center" in m.getEnumerationsOfProperty("Anchor") else m.Anchor
+rdoc.recompute()
+apanel = panels.make_panel(rdoc, aring, Mount="On face", HoleDiameter=5)
+rdoc.recompute()
+points = panels._joint_points(apanel, panels.layout(apanel))
+check(len(points) == 4, f"the frame's four joints are keep-outs ({len(points)})")
+
+# A cutout sketch inside a Body with its own placement is cut where it shows.
+body = rdoc.addObject("PartDesign::Body", "Body")
+body.Placement = App.Placement(V(100, 0, 0), App.Rotation())
+bsk = body.newObject("Sketcher::SketchObject", "BodyFan")
+bsk.addGeometry(Part.Circle(V(150, 150, 0), V(0, 0, 1), 20))
+rdoc.recompute()
+bpanel = panels.make_panel(rdoc, ring, cutouts=bsk, Mount="On face")
+rdoc.recompute()
+mid = (bpanel.Shape.BoundBox.ZMin + bpanel.Shape.BoundBox.ZMax) / 2
+check(bpanel.isValid() and not bpanel.Shape.isInside(V(250, 150, mid), 1e-6, True)
+      and bpanel.Shape.isInside(V(150, 150, mid), 1e-6, True), "a Body's sketch is cut at its real place")
+check(rdoc.getObject(bpanel.Name).getTypeIdOfProperty("Cutouts") == "App::PropertyLinkGlobal", "a global link")
+
+empty = rdoc.addObject("Sketcher::SketchObject", "Empty")
+rdoc.recompute()
+epanel = panels.make_panel(rdoc, ring, cutouts=empty, Mount="On face")
+rdoc.recompute()
+check(epanel.isValid(), f"an empty cutout sketch is fine ({epanel.getStatusString()})")
+cover = rdoc.addObject("Sketcher::SketchObject", "Cover")
+for a, b in (((-50, -50), (450, -50)), ((450, -50), (450, 350)), ((450, 350), (-50, 350)), ((-50, 350), (-50, -50))):
+    cover.addGeometry(Part.LineSegment(V(*a, 0), V(*b, 0)))
+rdoc.recompute()
+cpanel = panels.make_panel(rdoc, ring, cutouts=cover, Mount="On face")
+rdoc.recompute()
+check(not cpanel.isValid() and "whole sheet" in cpanel.getStatusString(), "a cutout over the whole sheet is an error")
+rdoc.removeObject(cpanel.Name)
+
+notch = rdoc.addObject("Sketcher::SketchObject", "Notch")
+notch.addGeometry(Part.Circle(V(260, 0, 0), V(0, 0, 1), 15))
+rdoc.recompute()
+npanel = panels.make_panel(rdoc, ring, cutouts=notch, Mount="On face", HoleDiameter=5, HoleSpacing=40)
+rdoc.recompute()
+d = panels.drawing(npanel)
+check(all(math.hypot(u - 260, v) > 15 + 2.5 for u, v in [(p.x, p.y) for p in world_holes(npanel)])
+      and any("cut into a cutout" in n for n in d.notes), "holes that would cut into a cutout are left out")
+rdoc.recompute()
+
+# Undo past a cut list must not hand a printed mark to another piece.
+mdoc = App.newDocument("pbundo")
+mdoc.UndoMode = 1
+pieces_ = [feature.make_profile("20-6", 1, 1, length, mdoc) for length in (500, 400)]
+mdoc.recompute()
+cutlist.apply_marks(mdoc, cutlist.build_report(mdoc))
+mdoc.openTransaction("edit")
+pieces_[1].Length = 450
+mdoc.commitTransaction()
+mdoc.recompute()
+mdoc.openTransaction("cut list")
+cutlist.apply_marks(mdoc, cutlist.build_report(mdoc))
+mdoc.commitTransaction()
+printed = pieces_[1].PieceMark
+mdoc.undo()
+mdoc.undo()
+mdoc.recompute()
+pieces_[1].Length = 350
+mdoc.recompute()
+again = cutlist.build_report(mdoc).marks[pieces_[1].Name]
+check(printed == "A3" and again == "A4", f"after undo the 350 mm piece gets a new mark ({printed} then {again})")
+App.closeDocument(mdoc.Name)
+
+# Undoing the very first cut list removes the Piece marks object; the marks it gave still count.
+mdoc = App.newDocument("pbundo2")
+mdoc.UndoMode = 1
+pieces_ = [feature.make_profile("20-6", 1, 1, length, mdoc) for length in (500, 400)]
+mdoc.recompute()
+mdoc.openTransaction("cut list")
+cutlist.apply_marks(mdoc, cutlist.build_report(mdoc))
+mdoc.commitTransaction()
+mdoc.undo()
+gone = cutlist.mark_store(mdoc) is None
+pieces_[1].Length = 450
+mdoc.recompute()
+again = cutlist.build_report(mdoc).marks[pieces_[1].Name]
+check(gone and again == "A3", f"after undoing the first cut list the 450 mm piece gets A3, not A2 ({gone}, {again})")
+App.closeDocument(mdoc.Name)
+App.closeDocument(rdoc.Name)
+
 # Older documents: panels open unchanged.
 for fixture in ("legacy_8733122.FCStd", "legacy_ead3f7d.FCStd"):
     old = App.openDocument(os.path.join(ROOT, "tests", "fixtures", fixture))
@@ -274,3 +468,7 @@ for fixture in ("legacy_8733122.FCStd", "legacy_ead3f7d.FCStd"):
 print(f"\n{len(failures)} failure(s)")
 for f in failures:
     print("  " + f)
+
+# A non-zero exit code lets CI see failures; os._exit skips FreeCAD's own exit handling.
+sys.stdout.flush()
+os._exit(1 if failures else 0)

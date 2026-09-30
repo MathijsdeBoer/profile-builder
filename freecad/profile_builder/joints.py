@@ -532,6 +532,10 @@ def create_joints(doc, profiles, joint_type="Butt", rule="Vertical", tolerance=T
             if warnings is not None:
                 warnings.append(f"{joint.Label} now joins {len(ends_of(joint)) + len(members)} profiles, "
                                 "so it was changed from a miter to a butt joint")
+        # A profile that ends at this joint no longer passes through it.
+        ending = {p.Name for p, _e in members}
+        if ending & set(joint.PassingMembers):
+            joint.PassingMembers = [n for n in joint.PassingMembers if n not in ending]
         for p, end in members:
             setattr(p, f"{end}Joint", joint)
         sources = list(joint.Sources)

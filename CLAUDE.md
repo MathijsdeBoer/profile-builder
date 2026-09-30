@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Profile Builder is a FreeCAD workbench (FreeCAD 0.21+, developed on 1.1) that generates parametric
+Profile Builder is a FreeCAD workbench (FreeCAD 1.0+, developed on 1.1; CI tests 1.0 and 1.1) that generates parametric
 aluminium T-slot / V-slot extrusion profiles, joins them on sketch edges, adds sheet panels, and
 produces cut lists, stock bar plans and cost estimates. See README.md for the user-facing features.
 
@@ -36,9 +36,24 @@ package through the working directory:
 - `freecad_smoke.py` prints `ok`/`FAIL` lines and ends with `N failure(s)`. It takes about 75 s,
   because it builds every catalog variant.
 - Each feature has its own script in the same style: `tests/freecad_stiffness.py`,
-  `tests/freecad_linear.py`, `tests/freecad_brackets.py` and `tests/freecad_panels.py` (panel fabrication,
-  panel fit and stable piece marks; the expected traceback is "must lie parallel to the panel"). The expected tracebacks are "Invalid profile
-  dimensions" (stiffness) and "no bracket part" (brackets).
+  `tests/freecad_linear.py`, `tests/freecad_brackets.py`, `tests/freecad_panels.py` (panel fabrication,
+  panel fit and stable piece marks) and `tests/freecad_check.py` (the frame check). The expected
+  tracebacks are "Invalid profile dimensions" (stiffness), "no bracket part" (brackets) and "must lie
+  parallel to the panel" (panels).
+- Every FreeCAD script ends with `os._exit(1 if failures else 0)`. `freecadcmd` exits 0 when a script
+  raises, so CI (`.github/workflows/tests.yml`, FreeCAD 1.0 and 1.1 AppImages) also requires the final
+  `0 failure(s)` line. Keep both when adding a script, and add it to the workflow.
+- FreeCAD 0.21 fails the sketch-edit tests (no topological naming), so `freecadmin` is 1.0.
+- Linux AppImages can be tried locally in WSL: `--appimage-extract`, then
+  `squashfs-root/AppRun freecadcmd tests/freecad_smoke.py`. Run `wsl.exe` from PowerShell; Git Bash
+  rewrites `/mnt/c/...` paths.
+- After changing any user-facing string, run `python tools/update_translations.py`;
+  `tests/test_translations.py` fails while the template is out of date, or when a property tooltip is
+  built at run time (an f-string or `+`): tooltips are looked up by their text, so write them as literals.
+- Test scripts that create a `QApplication` set `QT_QPA_PLATFORM=offscreen` when Linux has no display
+  (CI). It has to be set in the script: FreeCAD's AppRun overrides the variable.
+- `freecadcmd` on Windows prints to a cp1252 console: a check message with a character outside it (₹, −)
+  raises in `print` and stops the script. Wrap such values in `ascii()`.
 - `freecadcmd` often prints each output line twice; filter with `awk '!seen[$0]++'`.
 - A traceback about "Panel is too thick" is expected: that is a deliberate error case.
 - The file name must not match `test_*.py` / `*_test.py`, or pytest will try to collect it.
@@ -99,6 +114,16 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - **Carriages** (`linear.py`, GUI in `linear_ui.py`).
   - **Brackets** (`brackets.py`, GUI in `brackets_ui.py`): a link array of the user's part. `execute`
     only writes `ElementCount` and `PlacementList`, and never creates objects.
+- **Frame check (`check.py`, GUI in `check_ui.py`)**: independent checks that return `Finding`
+  records (severity, text, object names, optional fix). They never change the document; only
+  `apply_fix` does, for deleting duplicates and joining ends. Overlaps are tested on each profile's
+  outer box (`_envelope`: the section rectangle with the real length and miters), not on the slotted
+  solid, which is slow and leaves slivers where butted faces touch.
+  - A free end is measured to a nearby end of another profile, or to that end's joint, before an edge,
+    so the join fix makes a corner rather than a T. An end that meets exactly is only reported when the
+    outer boxes really overlap (collinear bars and hand-trimmed corners need no joint).
+  - The duplicate fix keeps the copy that panels, carriages or brackets use, and offers no fix when
+    more than one copy is in use.
 - **Report (`cutlist.py`)**: `build_report(doc)` returns a `Report`. `_blocks()` turns it into the rows
   that both the spreadsheet and the CSV writer use.
   - Objects with errors go into `Report.errors`, shown as a block at the top, and the total is marked
@@ -192,11 +217,19 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - The mark key is the `collect()` key as JSON. Changing that key (the product key, the rounding, the
     cut description) gives every group in existing documents a new mark.
   - Marks of vanished groups are retired, never reused. Only the Renumber command resets them.
+  - Undo rolls back the `Assigned` property, so the marks given so far are also kept where undo cannot
+    reach: on the MarkStore proxy (saved with the document) and in a per-document session cache (for an
+    undo that removes the store itself). `mark_state` merges all three.
   - Sheet marks use the prefix `P-`. Profile marks never contain a hyphen, so the two cannot collide.
   - The 3D label lives under the view provider's `RootNode`, which already carries the placement, so its
     position is in local coordinates. The root node stays in the scene when the object is hidden, so the
     label's switch follows `Visibility` by hand.
 - **Panel fabrication**:
+  - Holes are clipped to the real outline (`fabrication.polygon_of`: rounded corners, non-convex
+    shapes) and kept out of cutouts. Slot lines end where the face beside the slot really ends
+    (`_face_extent` probes the solid), which matters at miters on wide flat profiles.
+  - `Cutouts` is an `App::PropertyLinkGlobal`, and the sketch is used with its global placement, so a
+    sketch in a Body or Part works. Older panels with a plain link are migrated in `add_properties`.
   - `panels.drawing()` is the single description of the flat part. The solid, the exported files, the
     hole count and the cut-list grouping all come from it, so they cannot disagree.
   - Holes, rounding and tolerance default to 0 for panels in opened older documents (`CutTolerance` is
@@ -210,7 +243,17 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - Prices are stored per document in the `ProfileBuilderPricing` object, so changing the designation
     format orphans prices saved in existing documents.
   - User pricing defaults live in `<UserAppData>/ProfileBuilder/pricing.json`.
+- **Translations**:
+  - Command texts use the command name as the context (`QT_TRANSLATE_NOOP("ProfileBuilder_CutList", ...)`),
+    because that is how FreeCAD looks them up. Property tooltips use `"App::Property"`, the workbench, its
+    toolbars and menus `"Workbench"`, and panel texts `translate("ProfileBuilder", ...)`.
+  - Never pass an f-string: translate a template and fill it in with `.format()`.
+  - Never translate enumeration values or anything compared in code (Series, Mount, PurchaseMode, joint
+    Type, ...). They are stored in documents.
 - **FreeCAD and Qt quirks**:
+  - In the Qt 5 bindings (FreeCAD 1.0), `QLocale.toCurrencyString(float, symbol)` picks an integer overload
+    and `toString(float)` a single-precision one, so both lose cents. `pricing.money_in` builds the number
+    from integers in the locale's own digits and takes only the symbol's position from the locale.
   - Don't give objects purely numeric labels like `"2040"`: FreeCAD makes a duplicate `"2041"`. That's
     why labels are `"2040 profile"`.
   - Qt's `findData` cannot match tuple item data, so combo boxes use string keys like `"1x2"`.

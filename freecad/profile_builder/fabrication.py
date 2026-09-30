@@ -69,29 +69,104 @@ def rounded_outline(corners, radius):
     return segments, fits
 
 
-def clip_to_polygon(p, q, polygon, inset):
-    """The part of segment p-q at least ``inset`` inside a convex polygon, or None."""
-    ccw = signed_area(polygon) > 0
-    t0, t1 = 0.0, 1.0
-    d = _sub(q, p)
-    for a, b in zip(polygon, polygon[1:] + polygon[:1]):
-        e = _unit(_sub(b, a))
-        inward = (-e[1], e[0]) if ccw else (e[1], -e[0])
-        # Keep the points x with (x - a) . inward >= inset.
-        start = (p[0] - a[0]) * inward[0] + (p[1] - a[1]) * inward[1] - inset
-        rate = d[0] * inward[0] + d[1] * inward[1]
-        if abs(rate) < TINY:
-            if start < -TINY:
-                return None
-            continue
-        t = -start / rate
-        if rate > 0:
-            t0 = max(t0, t)
+def polygon_of(segments, arc_steps=16):
+    """The outline as a polygon, arcs as short straight pieces (for clipping and inside tests)."""
+    points = []
+    for s in segments:
+        if s[0] == "line":
+            points.append(s[1])
         else:
-            t1 = min(t1, t)
-    if t1 - t0 <= TINY:
+            points += _path_arc_points(s, arc_steps)[:-1]
+    return points
+
+
+def _path_arc_points(seg, count):
+    """Points along an arc from its start to its end, in the direction it runs."""
+    _kind, c, r, p, _q, ccw = seg
+    a = math.atan2(p[1] - c[1], p[0] - c[0])
+    mid = arc_midpoint(seg)
+    half = math.atan2(mid[1] - c[1], mid[0] - c[0]) - a
+    half = (half + math.pi) % (2 * math.pi) - math.pi
+    return [(c[0] + r * math.cos(a + 2 * half * k / count), c[1] + r * math.sin(a + 2 * half * k / count))
+            for k in range(count + 1)]
+
+
+def inside(point, polygon):
+    """Whether a point lies inside a simple polygon (even-odd rule)."""
+    x, y = point
+    result = False
+    for (x1, y1), (x2, y2) in zip(polygon, polygon[1:] + polygon[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            result = not result
+    return result
+
+
+def _near_edge(p, d, length, a, b, inset):
+    """(start, end) along p + d*s where the point is closer than ``inset`` to segment a-b, or None."""
+    ab = _sub(b, a)
+    span = math.hypot(*ab)
+    pieces = []
+    for c in (a, b):  # the rounded ends
+        along = (c[0] - p[0]) * d[0] + (c[1] - p[1]) * d[1]
+        off = abs((c[0] - p[0]) * d[1] - (c[1] - p[1]) * d[0])
+        if off < inset:
+            half = math.sqrt(inset * inset - off * off)
+            pieces.append((along - half, along + half))
+    if span > TINY:
+        e = (ab[0] / span, ab[1] / span)
+        n = (-e[1], e[0])
+        lo, hi = -math.inf, math.inf
+        # |(x - a).n| < inset and 0 <= (x - a).e <= span, with x = p + d*s: two slabs.
+        for axis, low, high in ((n, -inset, inset), (e, 0.0, span)):
+            start = (p[0] - a[0]) * axis[0] + (p[1] - a[1]) * axis[1]
+            rate = d[0] * axis[0] + d[1] * axis[1]
+            if abs(rate) < TINY:
+                if not low < start < high:
+                    lo, hi = 1.0, 0.0
+                continue
+            s1, s2 = (low - start) / rate, (high - start) / rate
+            lo, hi = max(lo, min(s1, s2)), min(hi, max(s1, s2))
+        if lo < hi:
+            pieces.append((lo, hi))
+    if not pieces:
         return None
-    return (p[0] + d[0] * t0, p[1] + d[1] * t0), (p[0] + d[0] * t1, p[1] + d[1] * t1)
+    # The pieces cover one convex capsule, so together they form a single interval.
+    return min(a for a, _b in pieces), max(b for _a, b in pieces)
+
+
+def clip_inside(p, q, polygon, inset):
+    """Pieces of segment p-q inside a simple polygon (convex or not) and at least ``inset`` from its edges."""
+    length = _dist(p, q)
+    if length <= TINY:
+        return []
+    d = ((q[0] - p[0]) / length, (q[1] - p[1]) / length)
+    edges = list(zip(polygon, polygon[1:] + polygon[:1]))
+    cuts = {0.0, length}
+    for a, b in edges:
+        e = _sub(b, a)
+        cross = d[0] * e[1] - d[1] * e[0]
+        if abs(cross) < TINY:
+            continue
+        s = ((a[0] - p[0]) * e[1] - (a[1] - p[1]) * e[0]) / cross
+        t = ((a[0] - p[0]) * d[1] - (a[1] - p[1]) * d[0]) / cross
+        if 0 < s < length and -TINY <= t <= 1 + TINY:
+            cuts.add(s)
+    cuts = sorted(cuts)
+    point = lambda s: (p[0] + d[0] * s, p[1] + d[1] * s)  # noqa: E731
+    spans = [(a, b) for a, b in zip(cuts, cuts[1:]) if b - a > TINY and inside(point((a + b) / 2), polygon)]
+    removed = [r for r in (_near_edge(p, d, length, a, b, inset) for a, b in edges) if r] if inset > 0 else []
+    pieces = []
+    for a, b in spans:
+        pos = a
+        for r0, r1 in sorted(removed):
+            if r1 <= pos or r0 >= b:
+                continue
+            if r0 > pos:
+                pieces.append((pos, r0))
+            pos = max(pos, r1)
+        if pos < b:
+            pieces.append((pos, b))
+    return [(point(a), point(b)) for a, b in pieces if b - a > TINY]
 
 
 def remove_circles(p, q, centres, radius):
@@ -132,28 +207,49 @@ def spaced(p, q, spacing, min_length):
     return [(p[0] + (q[0] - p[0]) * k / gaps, p[1] + (q[1] - p[1]) * k / gaps) for k in range(gaps + 1)]
 
 
-def hole_layout(lines, polygon, diameter, spacing, edge_distance, keepouts, keepout_radius):
-    """(hole centres, notes) for holes along lines inside a convex sheet outline.
+def hole_layout(lines, polygon, diameter, spacing, edge_distance, keepouts, keepout_radius, cutouts=()):
+    """(hole centres, notes) for holes along lines inside a sheet outline.
 
-    ``lines`` is [(name, p, q)]: the slot centre lines under the sheet. Each is
-    clipped to the outline shrunk by ``edge_distance`` and interrupted around
-    ``keepouts`` (corners and joints, where brackets sit). Holes closer than
-    two diameters to one already placed are dropped, so crossing lines do not
-    give double holes.
+    ``polygon`` is the outline, convex or not; pass polygon_of(segments) so
+    rounded corners count. ``lines`` is [(name, p, q)]: the slot centre lines
+    under the sheet. Each is clipped to the outline shrunk by ``edge_distance``
+    and interrupted around ``keepouts`` (corners and joints, where brackets
+    sit). Holes closer than two diameters to one already placed are dropped,
+    so crossing lines do not give double holes, and so are holes that would
+    cut into one of the ``cutouts`` (polygons).
     """
-    holes, notes = [], []
+    holes, notes, in_cutout = [], [], 0
     for name, p, q in lines:
-        clipped = clip_to_polygon(p, q, polygon, edge_distance)
-        if clipped is None:
-            gap = min(_line_distance(p, q, a, b) for a, b in zip(polygon, polygon[1:] + polygon[:1]))
-            notes.append(f"no holes along {name}: its slot is {gap:.1f} mm from the sheet edge, "
-                         f"closer than the edge distance ({edge_distance:g} mm)")
+        pieces = clip_inside(p, q, polygon, edge_distance)
+        if not pieces:
+            if clip_inside(p, q, polygon, 0):
+                gap = min(_line_distance(p, q, a, b) for a, b in zip(polygon, polygon[1:] + polygon[:1]))
+                notes.append(f"no holes along {name}: its slot is {gap:.1f} mm from the sheet edge, "
+                             f"closer than the edge distance ({edge_distance:g} mm)")
+            else:
+                notes.append(f"no holes along {name}: its slot is not under the sheet")
             continue
-        for a, b in remove_circles(*clipped, keepouts, keepout_radius):
-            for h in spaced(a, b, spacing, 2 * diameter):
-                if all(_dist(h, o) >= 2 * diameter for o in holes):
-                    holes.append(h)
+        for a, b in pieces:
+            for c, e in remove_circles(a, b, keepouts, keepout_radius):
+                for h in spaced(c, e, spacing, 2 * diameter):
+                    if any(inside(h, loop) or _to_polygon(h, loop) < diameter / 2 for loop in cutouts):
+                        in_cutout += 1
+                    elif all(_dist(h, o) >= 2 * diameter for o in holes):
+                        holes.append(h)
+    if in_cutout:
+        notes.append(f"{in_cutout} hole(s) left out because they would cut into a cutout")
     return holes, notes
+
+
+def _to_polygon(point, polygon):
+    """Distance from a point to the nearest edge of a polygon."""
+    best = math.inf
+    for a, b in zip(polygon, polygon[1:] + polygon[:1]):
+        ab = _sub(b, a)
+        span2 = ab[0] ** 2 + ab[1] ** 2
+        t = 0.0 if span2 < TINY else max(0.0, min(1.0, ((point[0] - a[0]) * ab[0] + (point[1] - a[1]) * ab[1]) / span2))
+        best = min(best, _dist(point, (a[0] + ab[0] * t, a[1] + ab[1] * t)))
+    return best
 
 
 def _line_distance(p, q, a, b):
@@ -213,8 +309,14 @@ def fingerprint(segments, holes, diameter, loops=()):
     """A key that is the same for sheets that are the same part, turned or flipped over.
 
     Built from the outline, the holes and the cutout loops (lists of points),
-    rounded to 0.1 mm, in the orientation that sorts first.
+    rounded to 0.1 mm, in the orientation that sorts first. The order in which
+    the cutouts were drawn does not matter.
     """
+    def snap(v):
+        # Rounding to 6 decimals first removes float noise, so a size of exactly x.x5 mm
+        # (every odd quarter inch) always rounds the same way.
+        return round(round(v, 6), 1) + 0.0
+
     groups = [outline_points(segments) + [s[1] for s in segments if s[0] == "arc"], list(holes)]
     groups += [list(loop) for loop in loops]
     variants = []
@@ -222,15 +324,31 @@ def fingerprint(segments, holes, diameter, loops=()):
         moved = [[((y if swap else x) * sx, (x if swap else y) * sy) for x, y in g] for g in groups]
         flat = [pt for g in moved for pt in g] or [(0, 0)]
         x0, y0 = min(x for x, _y in flat), min(y for _x, y in flat)
-        variants.append(tuple(tuple(sorted((round(x - x0, 1) + 0.0, round(y - y0, 1) + 0.0) for x, y in g))
-                              for g in moved))
+        keyed = [tuple(sorted((snap(x - x0), snap(y - y0)) for x, y in g)) for g in moved]
+        variants.append(tuple(keyed[:2]) + tuple(sorted(keyed[2:])))
     return (round(diameter, 2), min(variants))
 
 
+# Letters that Unicode does not split into a base letter and an accent.
+_LETTERS = str.maketrans({"ß": "ss", "ø": "o", "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE", "ł": "l", "Ł": "L",
+                          "đ": "d", "Đ": "D", "þ": "th", "Þ": "Th", "Ø": "D", "°": " deg", "×": "x", "²": "2"})
+
+
 def _ascii(text):
-    """DXF R12 files are not Unicode: 'Ø' and '°' would come out garbled."""
-    text = text.replace("Ø", "D").replace("°", " deg").replace("×", "x").replace("²", "2")
-    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    """Text for a DXF R12 file, which is not Unicode.
+
+    Accents are dropped ("é" becomes "e"), a few letters are spelled out
+    ("ß" becomes "ss"), and anything else is written as a "\\U+XXXX" escape,
+    which AutoCAD and most DXF readers show as the character.
+    """
+    text = unicodedata.normalize("NFKD", text.translate(_LETTERS))
+    out = []
+    for ch in text:
+        if ord(ch) < 128:
+            out.append(ch)
+        elif not unicodedata.combining(ch):
+            out.append("\\U+%04X" % ord(ch))
+    return "".join(out)
 
 
 def _num(value):

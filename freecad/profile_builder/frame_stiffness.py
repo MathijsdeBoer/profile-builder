@@ -103,7 +103,7 @@ class Settings:
 
         add("App::PropertyFloat", "LooseJointFactor", "Joints",
             "Joint stiffness at the loose bound, as a multiple of E·I/L of the profile that butts into the joint. "
-            f"Below {PINNED_LIMIT:g}, EN 1993-1-8 counts a joint as pinned.", DEFAULTS["LooseJointFactor"])
+            "Below 0.5, EN 1993-1-8 counts a joint as pinned.", DEFAULTS["LooseJointFactor"])
         add("App::PropertyFloat", "StiffJointFactor", "Joints",
             "Joint stiffness at the stiff bound, as a multiple of E·I/L of the butting profile (0: rigid joints)",
             DEFAULTS["StiffJointFactor"])
@@ -701,8 +701,9 @@ def unit_for(kind, magnitude):
         _text, factor, name = (unit * abs(magnitude or 1.0)).getUserPreferred()
     except Exception:  # noqa: BLE001
         factor, name = 0, ""
-    # Schemas without a rule for this kind print raw base units ("kg/s^2", "mm^2*kg/s^2").
-    if not name or not factor or "^" in name or "*" in name:
+    # Schemas without a rule for this kind print raw base units ("kg/s^2", "mm^2*kg/s^2"), and
+    # FreeCAD before 1.1 shows a moment as energy ("J"), which reads wrong for a torque.
+    if not name or not factor or "^" in name or "*" in name or (kind == "moment" and name.endswith("J")):
         return imperial if _imperial() else metric
     if name.endswith("Nm"):
         name = name[:-2] + "N·m"

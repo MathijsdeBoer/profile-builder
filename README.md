@@ -79,6 +79,13 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
   - The CSV export writes either decimal points with commas between fields, or decimal commas with
     semicolons, as used in many regions. It offers your system's format first.
   - Amounts use your system's currency symbol and number format; the currency can be set per document.
+- **Check frame**: one list of what would otherwise pass silently. It covers profiles and panels with
+  errors, profiles that overlap, and ends that meet or nearly meet another profile but have no joint (a
+  sketch vertex a few tenths of a millimetre off). It also finds two profiles on the same sketch edge,
+  panel fit problems, carriage warnings, pieces longer than a stock bar, lengths that differ by less than
+  a millimetre, and sketch edges without a profile. Clicking a finding selects its objects, and the two
+  obvious repairs (delete a duplicate, join ends) are one click. The cut list mentions any issues it
+  finds.
 - **Frame stiffness (estimate)**: sideways and twist stiffness at the top of the frame and its first
   natural frequencies, from a beam model of the profiles and joints. Joint stiffness is not known, so
   every value is a range between loose and rigid joints. Store a baseline to compare design variants
@@ -92,8 +99,8 @@ Link or copy this folder into your FreeCAD `Mod` directory, then restart FreeCAD
 New-Item -ItemType Junction -Path "$env:APPDATA\FreeCAD\v1-1\Mod\ProfileBuilder" -Target (Get-Location)
 ```
 
-Then pick **Profile Builder** from the workbench selector. Requires FreeCAD 0.21 or newer and has been
-tested on 1.1.
+Then pick **Profile Builder** from the workbench selector. Requires FreeCAD 1.0 or newer (0.21 lacks the
+topological naming that keeps profiles on the right sketch edge). Tested on 1.0 and 1.1.
 
 ## Usage
 
@@ -112,6 +119,7 @@ tested on 1.1.
 | **Export panels (DXF/SVG)** | Writes a DXF and an SVG file for each different sheet into a folder. The unit follows FreeCAD's unit system. |
 | **Show piece marks** | Shows or hides the marks in the 3D view, on the selected profiles or all of them. |
 | **Renumber piece marks** | (menu only) Numbers all pieces again from A1. Labels printed earlier no longer match. |
+| **Check frame...** | Lists problems in the frame by severity; click one to select its objects, and fix duplicates and unjoined ends. |
 | **Frame stiffness...** | Estimates sideways and twist stiffness and natural frequencies, as a range between loose and stiff joints, and compares with a stored baseline. |
 
 ### Frame workflow
@@ -164,8 +172,11 @@ lowest and highest temperature in use. What they assume:
   edge, as long as it can slide. A sheet that is glued, clamped or pressed in by a stiff seal cannot slide
   and bows instead.
 - **Cold, in the slots**: the sheet shrinks, may be cut undersize, and can rest against the far slot.
-  What is left in the slot must reach past the slot lips. A large Clearance helps when hot but hurts
-  here, so the two checks together bound it.
+  What is left in the slot must reach past the slot lips. For glass, wood or steel this happens when the
+  frame is warmest, because they expand less than aluminium. A large Clearance helps when hot but hurts
+  here, so the two checks together bound it. When no Clearance or InsertDepth passes both, the check says
+  so once instead of sending you back and forth: the sheet then needs deeper slots, a smaller or split
+  sheet, a narrower temperature range, or mounting on the face.
 - **On the face**: screws hold the sheet, so it grows around its centre, and the farthest holes move
   most. The holes need that much play around the screws. Oversize holes (and washers) let the sheet move;
   tight holes crack acrylic. If one hole is a snug locating hole instead, the sheet grows from there, and
@@ -204,4 +215,21 @@ proposal, an implementation approach checked against the code, and the effort.
 - `freecadcmd tests/freecad_stiffness.py`: the frame stiffness estimate against closed forms, baseline and units
 - `freecadcmd tests/freecad_linear.py`: carriages, clear run and stroke (also from the repo root)
 - `freecadcmd tests/freecad_brackets.py`: bracket calibration and placement, on the 400 mm cube and more
+- `freecadcmd tests/freecad_panels.py`: panel fabrication, panel fit and stable piece marks
+- `freecadcmd tests/freecad_check.py`: the frame check
+- GitHub Actions runs all of these on every push, on FreeCAD 1.0 and 1.1 (`.github/workflows/tests.yml`).
+  The FreeCAD scripts exit non-zero when a check fails.
+
+### Translating
+
+User-facing strings are marked for translation: command texts with the command name as context,
+property tooltips with `App::Property`, and panel texts with `ProfileBuilder`.
+`python tools/update_translations.py` collects them into
+`freecad/profile_builder/resources/translations/ProfileBuilder.ts` (pure Python, no Qt tools needed).
+To add a language, run it with `--add` and FreeCAD's code for the language (for example `de`, `fr`, `es-ES`,
+`pt-BR`, `sv-SE` or `zh-CN`; FreeCAD loads no other suffix), translate the `.ts` file in Qt Linguist,
+and compile it with `lrelease` (or `pyside6-lrelease`) into a `.qm` file next to it. FreeCAD picks it up
+when it runs in that language. Values that are stored in documents, such as the series, mount and joint
+type names, stay in English on purpose. Messages in the report view and the cut list are not translated
+yet.
 - `freecadcmd tools/make_icons.py`: regenerates the toolbar icons from the real geometry

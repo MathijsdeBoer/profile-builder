@@ -15,14 +15,12 @@ Effort: S = under a day, M = 1-3 days, L = about a week, XL = more.
 ## Suggested order
 
 Already done: the bug fixes and quick wins from the review (section properties, section cache, panel materials and thermal fit, piece marks), the first international fixes, and first stages of
-the frame stiffness estimate, the linear axis carriage and bracket placement, stable piece marks with 3D labels, and panel fabrication with DXF/SVG export.
+the frame stiffness estimate, the linear axis carriage and bracket placement, stable piece marks with 3D labels, panel fabrication with DXF/SVG export, the frame check, and Addon Manager readiness (licence, metadata, CI on FreeCAD 1.0 and 1.1, translation groundwork).
 
-1. [Addon Manager readiness: licence, metadata, CI and translations](addon-manager-readiness.md) (M, high value)
-2. [International use: units, imperial profiles and translations](international-units-and-formats.md) (L, high value)
-3. [Frame check: one list of clashes, unjoined ends and other silent order errors](frame-check.md) (L, high value)
-4. [Box frame generator sized by outside, inside or centre-line dimensions](box-frame-generator.md) (L, high value)
-5. [Connection method per joint, with derived machining: end taps, access holes, counterbores](joint-connection-machining.md) (L, high value)
-6. [Hardware BOM from joints and panels, with pack sizes and T-nut preload warnings](hardware-bom.md) (L, high value)
+1. [International use: units, imperial profiles and translations](international-units-and-formats.md) (L, high value)
+2. [Box frame generator sized by outside, inside or centre-line dimensions](box-frame-generator.md) (L, high value)
+3. [Connection method per joint, with derived machining: end taps, access holes, counterbores](joint-connection-machining.md) (L, high value)
+4. [Hardware BOM from joints and panels, with pack sizes and T-nut preload warnings](hardware-bom.md) (L, high value)
 
 ## Design & modelling
 
@@ -61,7 +59,7 @@ the frame stiffness estimate, the linear axis carriage and bracket placement, st
 
 | Feature | Status | Effort | Value |
 |---|---|---|---|
-| [Addon Manager readiness: licence, metadata, CI and translations](addon-manager-readiness.md) | Planned | M | high |
+| [Addon Manager readiness: licence, metadata, CI and translations](addon-manager-readiness.md) | Done | M | high |
 | [International use: units, imperial profiles and translations](international-units-and-formats.md) | Partly done | L | high |
 | [Joints task panel with live preview, auto-join on insert and a Preferences page](joints-task-panel-preferences.md) | Planned | M | medium |
 | [Live cut list dock with select-from-row and colour-by-group](live-cutlist-dock.md) | Planned | M | medium |
@@ -72,7 +70,7 @@ the frame stiffness estimate, the linear axis carriage and bracket placement, st
 
 | Feature | Status | Effort | Value |
 |---|---|---|---|
-| [Frame check: one list of clashes, unjoined ends and other silent order errors](frame-check.md) | Partly done | L | high |
+| [Frame check: one list of clashes, unjoined ends and other silent order errors](frame-check.md) | Done | L | high |
 | [Mass, centre of gravity, tipping and foot loads](mass-cog-tipping.md) | Planned | M | medium |
 | [Deflection and stress check per member, shown as a range between support bounds](member-load-check.md) | Planned | M | medium |
 | [Racking and bracing audit for frames](racking-audit.md) | Planned | M | medium |

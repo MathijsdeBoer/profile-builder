@@ -18,6 +18,8 @@ Done on 2026-09-30:
 - **Export panels** writes a DXF R12 (layers CUT, HOLES, MARK) and a true-size SVG per different sheet, with the part's lower-left corner at the origin. The unit (mm or inch) follows FreeCAD's unit schema and is in the file name and the MARK text, because DXF R12 cannot store it. The writers are pure Python (`fabrication.py`, tested with pytest).
 - The cut list's sheet rows have a mark (P-1, ...) and a Holes column. Sheets are grouped by a fingerprint of outline, holes and cutouts, so a front and a back sheet, or one turned 90°, are the same part. The Hardware block gets a screw and slot nut per hole, and the notes say to slide in-slot sheets in before the frame is closed.
 
+A review found eleven more defects, all fixed with tests: holes were clipped to a convex, sharp-cornered outline (L-shaped sheets lost holes, rounded corners lost material), slot lines on mitered wide profiles ran past the miter onto solid metal, joint keep-outs were missed for anchored profiles, cutout sketches in a Body were cut in the wrong place, holes inside cutouts were counted, an empty or all-covering cutout sketch misbehaved, and the fingerprint merged sheets with different fan holes (so one was never exported) or split identical ones.
+
 Not done: a price per hole or per cut metre, nesting several parts on one sheet, and brackets as keep-outs (a fixed radius around each joint is used instead). Flipping a sheet over counts as the same part, which is wrong for sheets with a finished face, such as brushed aluminium or printed composite.
 
 ## Problem

@@ -11,23 +11,31 @@ from . import geometry, profiles
 V = App.Vector
 
 ICON_DIR = os.path.join(os.path.dirname(__file__), "resources", "icons")
+QT_TRANSLATE_NOOP = App.Qt.QT_TRANSLATE_NOOP
 
 # (property name, series attribute, tooltip)
 DIMENSIONS = (
-    ("CellSize", "cell", "Size of one square cell (20 for the 20 series)"),
-    ("SlotOpening", "slot_opening", "Width of the slot opening at the face"),
-    ("LipThickness", "lip", "Thickness of the lips beside the slot opening"),
-    ("SlotHeadWidth", "head_width", "Widest part of the slot, below the lips"),
-    ("SlotHeadStraight", "head_straight", "Height of the straight part of the slot head"),
-    ("SlotDepth", "slot_depth", "Depth of the slot, measured from the face"),
-    ("SlotBottomWidth", "bottom_width", "Width of the slot bottom (on the core)"),
-    ("BoreDiameter", "center_bore", "Diameter of the centre bore (core hole for tapping)"),
-    ("CornerRadius", "corner_radius", "Radius of the outer corners"),
-    ("VChamfer", "v_chamfer", "Depth of the 45 degree V at the slot opening (V-slot only)"),
-    ("CornerHoleDiameter", "corner_hole", "Diameter of round corner holes (0 for none)"),
-    ("ChamberWall", "chamber_wall", "Wall thickness around hollow corner chambers (0: no chambers)"),
+    ("CellSize", "cell", QT_TRANSLATE_NOOP("App::Property", "Size of one square cell (20 for the 20 series)")),
+    ("SlotOpening", "slot_opening", QT_TRANSLATE_NOOP("App::Property", "Width of the slot opening at the face")),
+    ("LipThickness", "lip", QT_TRANSLATE_NOOP("App::Property", "Thickness of the lips beside the slot opening")),
+    ("SlotHeadWidth", "head_width", QT_TRANSLATE_NOOP("App::Property", "Widest part of the slot, below the lips")),
+    ("SlotHeadStraight", "head_straight", QT_TRANSLATE_NOOP("App::Property", "Height of the straight part of the slot head")),
+    ("SlotDepth", "slot_depth", QT_TRANSLATE_NOOP("App::Property", "Depth of the slot, measured from the face")),
+    ("SlotBottomWidth", "bottom_width", QT_TRANSLATE_NOOP("App::Property", "Width of the slot bottom (on the core)")),
+    ("BoreDiameter", "center_bore", QT_TRANSLATE_NOOP("App::Property", "Diameter of the centre bore (core hole for tapping)")),
+    ("CornerRadius", "corner_radius", QT_TRANSLATE_NOOP("App::Property", "Radius of the outer corners")),
+    ("VChamfer", "v_chamfer", QT_TRANSLATE_NOOP("App::Property", "Depth of the 45 degree V at the slot opening (V-slot only)")),
+    ("CornerHoleDiameter", "corner_hole", QT_TRANSLATE_NOOP("App::Property", "Diameter of round corner holes (0 for none)")),
+    ("ChamberWall", "chamber_wall", QT_TRANSLATE_NOOP("App::Property", "Wall thickness around hollow corner chambers (0: no chambers)")),
 )
 
+
+CLOSED_TIPS = {
+    "Top": QT_TRANSLATE_NOOP("App::Property", "No slots on the top face"),
+    "Bottom": QT_TRANSLATE_NOOP("App::Property", "No slots on the bottom face"),
+    "Left": QT_TRANSLATE_NOOP("App::Property", "No slots on the left face"),
+    "Right": QT_TRANSLATE_NOOP("App::Property", "No slots on the right face"),
+}
 
 # Properties that change the size or orientation of the section; joints that
 # involve the profile must be recomputed when one of them changes.
@@ -144,13 +152,13 @@ class Profile:
         add("App::PropertyEnumeration", "Series", "Profile",
             "Profile series; changing it resets the dimensions", list(profiles.SERIES))
         add("App::PropertyEnumeration", "Weight", "Profile",
-            "Weight class: " + "; ".join(f"{k}: {v}" for k, v in profiles.WEIGHT_TIPS.items())
-            + ". Changing it resets the dimensions.", list(profiles.WEIGHTS))
+            "Weight class: how hollow the section is (Standard, Light, Ultralight or Heavy). "
+            "Changing it resets the dimensions.", list(profiles.WEIGHTS))
         add("App::PropertyIntegerConstraint", "Columns", "Profile", "Cells along X (2 for a 4020)", (1, 1, 20, 1))
         add("App::PropertyIntegerConstraint", "Rows", "Profile", "Cells along Y (2 for a 2040)", (1, 1, 20, 1))
         add("App::PropertyEnumeration", "SlotStyle", "Profile", "Slot type", list(profiles.SLOT_STYLES))
         for face in profiles.FACES:
-            add("App::PropertyBool", f"Closed{face}", "Profile", f"No slots on the {face.lower()} face", False)
+            add("App::PropertyBool", f"Closed{face}", "Profile", CLOSED_TIPS[face], False)
         add("App::PropertyBool", "CenterBore", "Profile", "Cut the centre bores", True)
         add("App::PropertyBool", "CornerHoles", "Profile", "Cut the corner holes or chambers", True)
         add("App::PropertyString", "Designation", "Profile", "Trade name, e.g. 2040", mode=1)
@@ -194,13 +202,15 @@ class Profile:
         add("App::PropertyFloat", "MassPerMeter", "Info", "Mass per metre in kg/m", mode=1)
         add("App::PropertyFloat", "Mass", "Info", "Mass of this piece in kg", mode=1)
         add("App::PropertyLength", "OverallLength", "Info", "Tip-to-tip length including miters (saw length)", mode=1)
-        section = "of the modelled section, not a datasheet value"
-        add("App::PropertyFloat", "Ix", "Info", f"Second moment of area about local X in cm^4 (load along Y), {section}",
-            mode=1)
-        add("App::PropertyFloat", "Iy", "Info", f"Second moment of area about local Y in cm^4 (load along X), {section}",
-            mode=1)
-        add("App::PropertyFloat", "Wx", "Info", f"Section modulus about local X in cm^3, {section}", mode=1)
-        add("App::PropertyFloat", "Wy", "Info", f"Section modulus about local Y in cm^3, {section}", mode=1)
+        # Tooltips are literal, so the translation lookup (by their text) can find them.
+        add("App::PropertyFloat", "Ix", "Info", "Second moment of area about local X in cm^4 (load along Y), "
+            "of the modelled section, not a datasheet value", mode=1)
+        add("App::PropertyFloat", "Iy", "Info", "Second moment of area about local Y in cm^4 (load along X), "
+            "of the modelled section, not a datasheet value", mode=1)
+        add("App::PropertyFloat", "Wx", "Info", "Section modulus about local X in cm^3, "
+            "of the modelled section, not a datasheet value", mode=1)
+        add("App::PropertyFloat", "Wy", "Info", "Section modulus about local Y in cm^3, "
+            "of the modelled section, not a datasheet value", mode=1)
         add("App::PropertyString", "PieceMark", "Info", "Mark of this piece in the last cut list", mode=1)
         obj.setPropertyStatus("PieceMark", "Output")  # writing a mark must not trigger a recompute
 

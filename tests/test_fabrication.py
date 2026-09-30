@@ -41,11 +41,50 @@ def test_radius_is_reduced_on_short_edges():
     assert abs(radius - 15) < 1e-9
 
 
-def test_clip_to_polygon_with_inset():
-    assert fab.clip_to_polygon((-50, 10), (450, 10), SQUARE, 8) == ((8.0, 10.0), (392.0, 10.0))
-    assert fab.clip_to_polygon((-50, 5), (450, 5), SQUARE, 8) is None
+def test_clip_inside_with_inset():
+    assert fab.clip_inside((-50, 10), (450, 10), SQUARE, 8) == [((8.0, 10.0), (392.0, 10.0))]
+    assert fab.clip_inside((-50, 5), (450, 5), SQUARE, 8) == []
     # Clockwise outlines work too.
-    assert fab.clip_to_polygon((-50, 10), (450, 10), SQUARE[::-1], 8) == ((8.0, 10.0), (392.0, 10.0))
+    assert fab.clip_inside((-50, 10), (450, 10), SQUARE[::-1], 8) == [((8.0, 10.0), (392.0, 10.0))]
+
+
+L_SHAPE = [(0, 0), (400, 0), (400, 200), (200, 200), (200, 400), (0, 400)]
+
+
+def test_clip_inside_a_non_convex_outline():
+    # A line through both arms of an L is split at the inner corner.
+    pieces = fab.clip_inside((-10, 300), (410, 300), L_SHAPE, 8)
+    assert [(round(a[0], 6), round(b[0], 6)) for a, b in pieces] == [(8.0, 192.0)]
+    pieces = fab.clip_inside((10, -10), (10, 410), L_SHAPE, 8)
+    assert [(round(a[1], 6), round(b[1], 6)) for a, b in pieces] == [(8.0, 392.0)]
+    # Along the inner edge, 10 mm inside it.
+    pieces = fab.clip_inside((190, -10), (190, 410), L_SHAPE, 8)
+    assert [(round(a[1], 6), round(b[1], 6)) for a, b in pieces] == [(8.0, 392.0)]
+
+
+def test_holes_all_round_an_l_shaped_sheet():
+    lines = [("a", (-10, 10), (410, 10)), ("b", (390, -10), (390, 210)), ("c", (410, 190), (190, 190)),
+             ("d", (190, 180), (190, 410)), ("e", (210, 390), (-10, 390)), ("f", (10, 410), (10, -10))]
+    holes, notes = fab.hole_layout(lines, L_SHAPE, 5, 150, 6, L_SHAPE, 25)
+    assert not notes
+    assert all(fab.inside(h, L_SHAPE) and fab._to_polygon(h, L_SHAPE) >= 6 - 1e-9 for h in holes)
+    sides = {name for name, p, q in lines if any(fab._to_polygon(h, [p, q]) < 1e-6 for h in holes)}
+    assert sides == set("abcdef"), sides
+
+
+def test_rounded_corners_keep_holes_on_the_sheet():
+    segments, _ = fab.rounded_outline(SQUARE, 80)
+    outline = fab.polygon_of(segments)
+    lines = [("bottom", (-10, 10), (410, 10)), ("left", (10, -10), (10, 310))]
+    holes, _notes = fab.hole_layout(lines, outline, 5, 150, 8, SQUARE, 10)
+    assert holes and all(fab.inside(h, outline) and fab._to_polygon(h, outline) >= 8 - 0.05 for h in holes)
+
+
+def test_holes_stay_out_of_cutouts():
+    fan = [(250 + 15 * math.cos(k * math.pi / 16), 12 + 15 * math.sin(k * math.pi / 16)) for k in range(32)]
+    holes, notes = fab.hole_layout([("bottom", (-10, 10), (410, 10))], SQUARE, 5, 50, 6, [], 0, [fan])
+    assert all(not fab.inside(h, fan) and fab._to_polygon(h, fan) >= 2.5 for h in holes)
+    assert any("cut into a cutout" in n for n in notes)
 
 
 def test_keepouts_split_a_line():
@@ -89,6 +128,16 @@ def test_fingerprint_ignores_turning_and_flipping():
     assert key == fab.fingerprint(b, turned_holes, 5) == fab.fingerprint(a, flipped_holes, 5)
     assert key != fab.fingerprint(a, [(20, 10), (380, 20)], 5)
     assert key != fab.fingerprint(a, holes, 6)
+
+
+def test_fingerprint_ignores_cutout_order_and_float_noise():
+    a, _ = fab.rounded_outline(SQUARE, 0)
+    one, two = [(100, 100), (110, 100)], [(280, 200), (290, 200)]
+    assert fab.fingerprint(a, [], 0, [one, two]) == fab.fingerprint(a, [], 0, [two, one])
+    # 420.05 mm (16.5375 in) computed two ways must round alike.
+    b, _ = fab.rounded_outline([(0, 0), (420.05 + 1e-10, 0), (420.05, 300), (0, 300)], 0)
+    c, _ = fab.rounded_outline([(0, 0), (420.05 - 1e-10, 0), (420.05, 300), (0, 300)], 0)
+    assert fab.fingerprint(b, [], 0) == fab.fingerprint(c, [], 0)
 
 
 def test_dxf_has_layers_and_entities():
