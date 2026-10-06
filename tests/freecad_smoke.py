@@ -23,7 +23,7 @@ import FreeCAD as App  # noqa: E402
 import Part  # noqa: E402
 import Sketcher  # noqa: E402
 
-from freecad.profile_builder import cutlist, feature, joints, panels, pricing  # noqa: E402
+from freecad.profile_builder import box_frame, cutlist, feature, joints, panels, pricing  # noqa: E402
 
 _loaded = os.path.normcase(os.path.realpath(feature.__file__))
 if not _loaded.startswith(os.path.normcase(os.path.realpath(ROOT))):
@@ -160,19 +160,11 @@ def lines_object(name, segments):
 
 cube_doc = App.newDocument("cube")
 doc = cube_doc
-S = 400
-corners = [(0, 0), (S, 0), (S, S), (0, S)]
-segments = []
-for z in (0, S):
-    segments += [((*a, z), (*b, z)) for a, b in zip(corners, corners[1:] + corners[:1])]
-segments += [((*c, 0), (*c, S)) for c in corners]
-lines = lines_object("CubeLines", segments)
-doc.recompute()
-cube = [feature.make_profile("20-6", 1, 1, 100, doc, edge=(lines, f"Edge{i + 1}")) for i in range(12)]
-doc.recompute()
-created = joints.create_joints(doc, cube, "Butt", "Vertical")
-doc.recompute()
+skeleton, cube, created, warnings = box_frame.make_box(
+    doc, width=400, depth=400, height=400, size_mode="Centre lines")
+lines = skeleton
 check(len(created) == 8, f"cube: 8 corner joints ({len(created)})")
+check(not warnings, f"cube: no joint warnings ({warnings})")
 lengths = sorted(round(p.Length.Value, 3) for p in cube)
 check(lengths == [380.0] * 8 + [420.0] * 4, f"cube: rails 380, posts 420 ({lengths})")
 check(all(p.Shape.isValid() for p in cube), "cube: all valid")
@@ -190,11 +182,79 @@ lengths = sorted(round(p.Length.Value, 3) for p in cube)
 check(lengths == [370.0] * 8 + [420.0] * 4, f"cube: 3030 posts -> rails 370 ({lengths})")
 
 # Stretching the lines keeps the joints right.
-segments = [((a[0] * 1.5, a[1], a[2]), (b[0] * 1.5, b[1], b[2])) for a, b in segments]
-lines.Shape = Part.makeCompound([Part.makeLine(App.Vector(*a), App.Vector(*b)) for a, b in segments])
+skeleton.Width = 600
 doc.recompute()
 x_rails = sorted(round(p.Length.Value, 3) for p in cube if abs(feature.member_frame(p).z.x) > 0.9)
 check(x_rails == [570.0] * 4, f"cube: stretched X rails 570 ({x_rails})")
+
+# ---- box generator: outside, inside-clear and centre-line sizing -------------
+
+box_doc = App.newDocument("boxoutside")
+doc = box_doc
+box_skeleton, box_members, box_joints, warnings = box_frame.make_box(
+    doc, width=600, depth=600, height=700, size_mode="Outside")
+
+
+def box_extents(members):
+    bounds = Part.makeCompound([member.Shape for member in members]).BoundBox
+    return bounds.XLength, bounds.YLength, bounds.ZLength
+
+
+check(len(box_joints) == 8 and not warnings,
+      f"outside box: 8 joints and no warnings ({len(box_joints)}, {warnings})")
+check(all(abs(a - b) < 1e-6 for a, b in zip(box_extents(box_members), (600, 600, 700))),
+      f"outside box: 600 x 600 x 700 ({box_extents(box_members)})")
+edge9 = box_skeleton.Shape.Edges[8]
+check((edge9.Vertexes[0].Point - App.Vector(0, 0, 0)).Length < 1e-6,
+      "box skeleton: Edge9 is the post at the origin")
+
+for post in box_members[8:]:
+    post.Series = "30-8"
+doc.recompute()
+check(all(abs(a - b) < 1e-6 for a, b in zip(box_extents(box_members), (600, 600, 700))),
+      f"outside box: 3030 posts keep the requested size ({box_extents(box_members)})")
+
+for rail in box_members[:8]:
+    rail.Series = "30-8"
+doc.recompute()
+check(all(abs(a - b) < 1e-6 for a, b in zip(box_extents(box_members), (600, 600, 700))),
+      f"outside box: 3030 rails keep the requested size ({box_extents(box_members)})")
+
+box_skeleton.SizeMode = "Inside clear"
+box_skeleton.Width = 400
+box_skeleton.Depth = 350
+box_skeleton.Height = 500
+doc.recompute()
+line_bounds = box_skeleton.Shape.BoundBox
+check(all(abs(a - b) < 1e-6 for a, b in
+          zip((line_bounds.XLength, line_bounds.YLength, line_bounds.ZLength), (430, 380, 530))),
+      f"inside-clear box: correct centre-line spans ({line_bounds})")
+check(all(abs(a - b) < 1e-6 for a, b in zip(box_extents(box_members), (460, 410, 560))),
+      f"inside-clear box: 400 x 350 x 500 clear ({box_extents(box_members)})")
+
+box_skeleton.SizeMode = "Centre lines"
+doc.recompute()
+line_bounds = box_skeleton.Shape.BoundBox
+check(all(abs(a - b) < 1e-6 for a, b in
+          zip((line_bounds.XLength, line_bounds.YLength, line_bounds.ZLength), (400, 350, 500))),
+      f"centre-line box: exact requested spans ({line_bounds})")
+with tempfile.TemporaryDirectory() as temp_dir:
+    saved_box = os.path.join(temp_dir, "box.FCStd")
+    box_doc.saveAs(saved_box)
+    App.closeDocument(box_doc.Name)
+    doc = App.openDocument(saved_box)
+    restored_skeleton = next(obj for obj in doc.Objects if
+                             getattr(getattr(obj, "Proxy", None), "Type", None) == "ProfileBuilder::Skeleton")
+    restored_members = [obj for obj in doc.Objects if feature.is_profile(obj)]
+    doc.recompute()
+    check(len(restored_members) == 12 and len(
+        [obj for obj in doc.Objects if joints.is_joint(obj)]) == 8,
+        "box frame: skeleton, profiles and joints survive save and reload")
+    restored_edge9 = next(feature.path_edge(obj) for obj in restored_members
+                          if obj.PathEdge[1][0] == "Edge9")
+    check((restored_edge9.Vertexes[0].Point - App.Vector(0, 0, 0)).Length < 1e-6,
+          "box frame: Edge9 reference survives save and reload")
+    App.closeDocument(doc.Name)
 
 # ---- choosing which profiles run through: a 400 x 400 square of 2040 -----------
 

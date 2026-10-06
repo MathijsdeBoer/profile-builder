@@ -6,7 +6,7 @@ import FreeCAD as App
 import FreeCADGui as Gui
 import Part
 
-from . import cutlist, feature, joints, panels, pricing, profiles
+from . import cutlist, feature, joints, panels, pricing, profiles, slot_alignment
 from . import linear, linear_ui  # carriages
 from .feature import ICON_DIR
 
@@ -90,6 +90,22 @@ class CreateProfile:
         if not edges and skipped:
             return  # every selected edge already has a profile (a warning was printed)
         Gui.Control.showDialog(ProfileTaskPanel(edges=edges))
+
+
+class CreateBoxFrame:
+    def GetResources(self):
+        return {
+            "Pixmap": icon("BoxFrame.svg"),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_BoxFrame", "Box frame..."),
+            "ToolTip": QT_TRANSLATE_NOOP("ProfileBuilder_BoxFrame", "Create a cube frame from outside, inside-clear or centre-line dimensions"),
+        }
+
+    def IsActive(self):
+        return Gui.Control.activeDialog() is False
+
+    def Activated(self):
+        from .box_frame_ui import BoxFrameTaskPanel
+        Gui.Control.showDialog(BoxFrameTaskPanel())
 
 
 class QuickProfile:
@@ -291,6 +307,74 @@ class CreateJoints:
                                  "change their type or which profile runs through.\n")
 
 
+class AlignSlots:
+    def GetResources(self):
+        return {
+            "Pixmap": icon("AlignSlots.svg"),
+            "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_AlignSlots", "Align slots"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "ProfileBuilder_AlignSlots",
+                "Align slots on selected profiles with unselected neighbours at butt joints; sketch edges stay fixed"),
+        }
+
+    def IsActive(self):
+        return App.ActiveDocument is not None and Gui.Control.activeDialog() is False
+
+    def Activated(self):
+        from PySide import QtWidgets
+
+        doc = App.ActiveDocument
+        selected = list({obj.Name: obj for obj in Gui.Selection.getSelection()
+                         if feature.is_profile(obj)}.values())
+        alignments, notes = slot_alignment.plan(selected)
+        changes = [alignment for alignment in alignments if alignment.changed]
+        title = translate("ProfileBuilder", "Align slots")
+        if not changes:
+            text = (translate("ProfileBuilder", "The selected profile slots already line up with their adjoining "
+                             "profiles.") if alignments else
+                    translate("ProfileBuilder", "No selected profile could be aligned. Select only the profiles to "
+                             "change, leaving their adjoining profiles unselected."))
+            if notes:
+                text += "\n\n" + "\n".join(notes)
+            QtWidgets.QMessageBox.information(Gui.getMainWindow(), title, text)
+            return
+
+        def length_text(value):
+            return App.Units.Quantity(value, App.Units.Length).UserString
+
+        def angle_text(value):
+            return App.Units.Quantity(value, App.Units.Angle).UserString
+
+        details = [
+            translate("ProfileBuilder", "{profile}: Spin {spin}; section offset X {x}, Y {y}; "
+                      "{matches} slot pair(s) at {matched} of {eligible} applicable butt joint(s).").format(
+                          profile=alignment.profile.Label,
+                          spin=angle_text(alignment.spin),
+                          x=length_text(alignment.offset_x),
+                          y=length_text(alignment.offset_y),
+                          matches=alignment.matches,
+                          matched=alignment.matched_joints,
+                          eligible=alignment.eligible_joints)
+            for alignment in changes
+        ]
+        text = (translate("ProfileBuilder", "The selected profile sections will be rotated and shifted relative to "
+                         "their sketch paths. The sketch edges will not move.\n\n")
+                + "\n".join(details))
+        if notes:
+            text += "\n\n" + "\n".join(notes)
+        answer = QtWidgets.QMessageBox.question(
+            Gui.getMainWindow(), title, text,
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.Yes)
+        if answer != QtWidgets.QMessageBox.Yes:
+            return
+
+        changed = slot_alignment.apply(doc, changes)
+        for note in notes:
+            App.Console.PrintWarning(f"Profile Builder: {note}\n")
+        App.Console.PrintMessage(f"Profile Builder: aligned slots on {len(changed)} profile(s).\n")
+
+
 class RunThrough:
     def GetResources(self):
         return {
@@ -486,9 +570,11 @@ class Pricing:
 def register():
     """Register all commands; returns [(series key, group command, size commands)]."""
     Gui.addCommand("ProfileBuilder_Create", CreateProfile())
+    Gui.addCommand("ProfileBuilder_BoxFrame", CreateBoxFrame())
     Gui.addCommand("ProfileBuilder_CutList", CutList())
     Gui.addCommand("ProfileBuilder_ExportCutList", ExportCutList())
     Gui.addCommand("ProfileBuilder_Joints", CreateJoints())
+    Gui.addCommand("ProfileBuilder_AlignSlots", AlignSlots())
     Gui.addCommand("ProfileBuilder_RunThrough", RunThrough())
     Gui.addCommand("ProfileBuilder_SwapJoint", SwapJoint())
     Gui.addCommand("ProfileBuilder_Panel", CreatePanel())

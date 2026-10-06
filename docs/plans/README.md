@@ -15,7 +15,7 @@ Effort: S = under a day, M = 1-3 days, L = about a week, XL = more.
 ## Suggested order
 
 Already done: the bug fixes and quick wins from the review (section properties, section cache, panel materials and thermal fit, piece marks), the first international fixes, and first stages of
-the frame stiffness estimate, the linear axis carriage and bracket placement, stable piece marks with 3D labels, panel fabrication with DXF/SVG export, the frame check, and Addon Manager readiness (licence, metadata, CI on FreeCAD 1.0 and 1.1, translation groundwork).
+the frame stiffness estimate, the linear axis carriage and bracket placement, stable piece marks with 3D labels, panel fabrication with DXF/SVG export, slot alignment, the frame check, and Addon Manager readiness (licence, metadata, CI on FreeCAD 1.0 and 1.1, translation groundwork).
 
 1. [International use: units, imperial profiles and translations](international-units-and-formats.md) (L, high value)
 2. [Box frame generator sized by outside, inside or centre-line dimensions](box-frame-generator.md) (L, high value)
@@ -26,7 +26,7 @@ the frame stiffness estimate, the linear axis carriage and bracket placement, st
 
 | Feature | Status | Effort | Value |
 |---|---|---|---|
-| [Box frame generator sized by outside, inside or centre-line dimensions](box-frame-generator.md) | Planned | L | high |
+| [Box frame generator sized by outside, inside or centre-line dimensions](box-frame-generator.md) | Partly done | L | high |
 | [Enclosure doors: sheet doors and framed guard doors with hinge gaps and a swing check](enclosure-doors.md) | Planned | XL | medium |
 | [Linear axis on a profile: carriage, usable stroke and belt length](linear-axis-carriage.md) | Partly done | L | low |
 
@@ -34,6 +34,7 @@ the frame stiffness estimate, the linear axis carriage and bracket placement, st
 
 | Feature | Status | Effort | Value |
 |---|---|---|---|
+| [Aligning slots on adjoining profiles](slot-alignment.md) | Done | S | medium |
 | [Connection method per joint, with derived machining: end taps, access holes, counterbores](joint-connection-machining.md) | Planned | L | high |
 | [Angled butt joints for diagonal braces](angled-butt-joints.md) | Planned | M | medium |
 | [End fittings: levelling feet, castors, floor brackets and end caps with height compensation](end-fittings.md) | Planned | M | medium |

@@ -2,6 +2,17 @@
 
 Most of this workbench was written by an AI model; see [AI_DISCLOSURE.md](AI_DISCLOSURE.md).
 
+## Unreleased
+
+Added:
+- Box frame generator for closed cubes, sized by outside, inside-clear or centre-line dimensions, with
+  separate post and rail profiles and a live cut-length summary.
+- Linear-carriage warnings, such as insufficient stroke, in the cut-list Notes block.
+- Slot alignment at butt joints, including saved section offsets for matching different section grids.
+
+Fixed:
+- Deleting a profile refreshes its joints, including a manual through-profile choice.
+
 ## 0.2.0 (2026-09-30)
 
 Added:

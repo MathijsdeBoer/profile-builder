@@ -154,6 +154,26 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../skeleton.py"/>
+        <source>Effective post section depth along Y</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Effective post section width along X</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Effective rail section height</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Effective rail section width across the frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../joints.py"/>
         <source>Extend the through profile so its end is flush with the others</source>
         <translation type="unfinished"></translation>
@@ -201,6 +221,11 @@
     <message>
         <location filename="../../panels.py"/>
         <source>Highest temperature in use, in °C (a heated printer enclosure runs at 40-60 °C)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>How Width, Depth and Height are measured</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -424,6 +449,16 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../feature.py"/>
+        <source>Offset the section from its path in local X</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../feature.py"/>
+        <source>Offset the section from its path in local Y</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../pricing.py"/>
         <source>Order value above which delivery is free (0: never free)</source>
         <translation type="unfinished"></translation>
@@ -456,6 +491,16 @@
     <message>
         <location filename="../../linear.py"/>
         <source>Position in percent of the stroke (0: against the end stop at the start of the run)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Post depth used when no post profile is attached</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Post width used when no post profile is attached</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -516,6 +561,31 @@
     <message>
         <location filename="../../feature.py"/>
         <source>Radius of the outer corners</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Rail height used when no rail profile is attached</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Rail width used when no rail profile is attached</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Requested depth: outside, inside clear or between post centre lines</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Requested height: outside, inside clear or between rail centre lines</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../skeleton.py"/>
+        <source>Requested width: outside, inside clear or between post centre lines</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -792,6 +862,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../commands.py"/>
+        <source>Align slots</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../taskpanel.py"/>
         <source>Anchor</source>
         <translation type="unfinished"></translation>
@@ -799,6 +874,11 @@
     <message>
         <location filename="../../frame_ui.py"/>
         <source>Assumptions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Box frame</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -814,6 +894,16 @@
     <message>
         <location filename="../../taskpanel.py"/>
         <source>Centre bore</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Centre-line dimensions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Centre-line size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -847,6 +937,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Cut lengths: {groups}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../pricing_ui.py"/>
         <source>Cutting cost / piece</source>
         <translation type="unfinished"></translation>
@@ -877,8 +972,23 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Depth</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Dimension mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../pricing_ui.py"/>
         <source>End trim per bar</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Enter a valid length for width, depth and height.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -917,6 +1027,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Height</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../commands.py"/>
         <source>How should the profiles meet?</source>
         <translation type="unfinished"></translation>
@@ -931,6 +1046,16 @@
         <source>Insert a {name} profile ({series}).
 Uses the weight class and slot style you last picked in the Profile dialog.
 With straight edges selected, one profile is placed on each edge.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Inside clear dimensions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Inside clear size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -955,6 +1080,11 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Lengths accept FreeCAD units. Vertical posts run through butt joints; changing the joint rule can alter the frame size.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../pricing_ui.py"/>
         <source>Load my defaults</source>
         <translation type="unfinished"></translation>
@@ -967,6 +1097,11 @@ Select a sketch and insert profiles on its edges first.</source>
     <message>
         <location filename="../../frame_ui.py"/>
         <source>Mass on top</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Measured size differs from the requested size. Check profile anchors, spins and joint settings.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -995,13 +1130,43 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../commands.py"/>
+        <source>No selected profile could be aligned. Select only the profiles to change, leaving their adjoining profiles unselected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../check_ui.py"/>
         <source>Notes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Outside dimensions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Outside size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../linear_ui.py"/>
         <source>Position</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Post series</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Post size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Post weight</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1022,6 +1187,21 @@ Select a sketch and insert profiles on its edges first.</source>
     <message>
         <location filename="../../pricing_ui.py"/>
         <source>Purchase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Rail series</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Rail size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Rail weight</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1050,6 +1230,11 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>Select the profile or profiles whose slots should be aligned.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../taskpanel.py"/>
         <source>Series</source>
         <translation type="unfinished"></translation>
@@ -1070,6 +1255,12 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>Slot alignment did not produce valid profiles: {profiles}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
         <location filename="../../taskpanel.py"/>
         <source>Slot style</source>
         <translation type="unfinished"></translation>
@@ -1115,6 +1306,18 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../commands.py"/>
+        <source>The selected profile sections will be rotated and shifted relative to their sketch paths. The sketch edges will not move.
+
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../commands.py"/>
+        <source>The selected profile slots already line up with their adjoining profiles.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../check_ui.py"/>
         <source>Warnings</source>
         <translation type="unfinished"></translation>
@@ -1122,6 +1325,16 @@ Select a sketch and insert profiles on its edges first.</source>
     <message>
         <location filename="../../taskpanel.py"/>
         <source>Weight</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Width</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Width, depth and height must be positive.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1140,8 +1353,69 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>{count} × {length} ({product})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../check_ui.py"/>
         <source>{errors} error(s) and {warnings} warning(s). Click one to select its objects.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>{label}: {dimensions}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>{profile} does not follow a sketch edge, so its slots cannot be aligned at joints</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>{profile} has no open, perpendicular slot faces to align with an unselected profile at a butt joint</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../commands.py"/>
+        <source>{profile}: Spin {spin}; section offset X {x}, Y {y}; {matches} slot pair(s) at {matched} of {eligible} applicable butt joint(s).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>{profile}: slots align at {matched} of {eligible} applicable butt joints</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>{size} (on side)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ProfileBuilder_AlignSlots</name>
+    <message>
+        <location filename="../../commands.py"/>
+        <source>Align slots</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../commands.py"/>
+        <source>Align slots on selected profiles with unselected neighbours at butt joints; sketch edges stay fixed</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ProfileBuilder_BoxFrame</name>
+    <message>
+        <location filename="../../commands.py"/>
+        <source>Box frame...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../commands.py"/>
+        <source>Create a cube frame from outside, inside-clear or centre-line dimensions</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

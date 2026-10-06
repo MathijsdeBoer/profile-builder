@@ -32,10 +32,19 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
 - **Miter cuts** at either end, with the saw (tip-to-tip) length computed for you.
 - **Frames from sketches**: select straight edges or a whole sketch and you get one profile per edge.
   Each profile follows its edge when the sketch changes. You can extend or trim either end, spin the
-  profile about its axis and set the anchor.
+  profile about its axis and set the anchor. The **Align slots** tool can shift a section in local X/Y
+  without moving its sketch edge.
+- **Box frame generator**: make a closed cube from outside, inside-clear or centre-line dimensions, with
+  separate post and rail profiles. Changing the dimensions or section sizes updates the skeleton and its
+  joints. This first stage generates cubes; open faces, mid-rails, panels and saved templates are not
+  included yet.
 - **Joints**: where profiles on sketch edges meet, they butt against each other (one runs through, the
   others stop at its face) or miter. T-junctions are detected too. Joints follow sketch changes and
   profile size changes, so the cut list tells you "8 × 380, 4 × 470" without any manual trimming.
+- **Align slots**: select only the profiles to adjust, leaving their adjoining profiles unselected as
+  references. At shared butt joints the command rotates and offsets each section to line up as many
+  slot centre-lines as possible, without moving sketch edges. It reports partial matches; miter joints
+  and profiles without sketch paths are not handled.
 - **Brackets**: your own bracket part, for example a STEP file from your supplier, is placed in every
   square corner of the butt joints, one per slot that lines up on both profiles. Pick the bracket's two
   faces that touch the profiles once, and the brackets follow sketch edits, joint swaps and size
@@ -109,6 +118,7 @@ topological naming that keeps profiles on the right sketch edge). Tested on 1.0 
 | **Profile...** | Opens a task panel with a live preview. Uses the selected edges if there are any. |
 | Series drop-downs | Inserts a catalog size straight away with your last-used length and style, placing it on the selected edges if there are any. |
 | **Joints...** | Joins profiles on sketch edges wherever they meet, using the selected profiles or all of them. |
+| **Align slots** | Aligns selected profiles to unselected neighbours at butt joints. Confirms the Spin and local section offsets before changing anything. |
 | **Panel...** | Creates a sheet in the opening between three or more selected profiles. |
 | **Carriage...** | Adds a carriage on the selected profile (click the face it runs on) and shows its clear run and stroke. Select a solid as well to show it as the carriage. |
 | **Brackets...** | Places your bracket part in the corners of the joints. Pick its two contact faces first: the one on the profile that ends at the joint, then the one on the profile it meets. |
@@ -217,6 +227,7 @@ proposal, an implementation approach checked against the code, and the effort.
 - `freecadcmd tests/freecad_brackets.py`: bracket calibration and placement, on the 400 mm cube and more
 - `freecadcmd tests/freecad_panels.py`: panel fabrication, panel fit and stable piece marks
 - `freecadcmd tests/freecad_check.py`: the frame check
+- `freecadcmd tests/freecad_slot_alignment.py`: profile slot alignment at butt joints
 - GitHub Actions runs all of these on every push, on FreeCAD 1.0 and 1.1 (`.github/workflows/tests.yml`).
   The FreeCAD scripts exit non-zero when a check fails.
 

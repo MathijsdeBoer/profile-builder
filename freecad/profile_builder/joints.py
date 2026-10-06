@@ -89,6 +89,22 @@ def touch_joints_of(obj):
             other.touch()
 
 
+class _ProfileDeletionObserver:
+    """Keep joints current when deleting a profile removes its links to them."""
+
+    def slotDeletedObject(self, *args):
+        profile = next((obj for obj in args if feature.is_profile(obj)), None)
+        if profile is not None:
+            touch_joints_of(profile)
+
+
+_DELETION_OBSERVER_KEY = "_profile_builder_joint_deletion_observer"
+if getattr(App, _DELETION_OBSERVER_KEY, None) is None:
+    _deletion_observer = _ProfileDeletionObserver()
+    App.addDocumentObserver(_deletion_observer)
+    setattr(App, _DELETION_OBSERVER_KEY, _deletion_observer)
+
+
 def through_member(joint):
     """(profile, end) of the member that runs through; end is None for a passing member."""
     passing = passing_of(joint)

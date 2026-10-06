@@ -71,3 +71,7 @@ jobs:
         if: always()
         shell: bash
         run: $FREECADCMD tests/freecad_brackets.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt
+      - name: Slot alignment
+        if: always()
+        shell: bash
+        run: $FREECADCMD tests/freecad_slot_alignment.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt

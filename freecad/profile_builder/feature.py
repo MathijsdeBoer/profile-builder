@@ -39,7 +39,8 @@ CLOSED_TIPS = {
 
 # Properties that change the size or orientation of the section; joints that
 # involve the profile must be recomputed when one of them changes.
-SECTION_PROPS = {"Series", "Columns", "Rows", "CellSize", "Anchor", "Spin", "PathEdge", "JointRole"}
+SECTION_PROPS = {"Series", "Columns", "Rows", "CellSize", "Anchor", "Spin", "SectionOffsetX",
+                 "SectionOffsetY", "PathEdge", "JointRole"}
 JOINT_ROLES = ("Auto", "Runs through", "Butts")
 
 
@@ -90,7 +91,7 @@ class Frame:
 def member_frame(obj):
     width = obj.Columns * obj.CellSize.Value
     height = obj.Rows * obj.CellSize.Value
-    c = geometry.anchor_offset(obj.Anchor, width, height)
+    c = geometry.anchor_offset(obj.Anchor, width, height) + section_offset(obj)
     rect = (c.x - width / 2, c.x + width / 2, c.y - height / 2, c.y + height / 2)
     edge = path_edge(obj)
     if edge is not None:
@@ -100,6 +101,23 @@ def member_frame(obj):
     rot = pl.Rotation
     return Frame(pl.Base, rot.multVec(V(1, 0, 0)), rot.multVec(V(0, 1, 0)),
                  rot.multVec(V(0, 0, 1)), rect)
+
+
+def section_offset(obj):
+    x = getattr(obj, "SectionOffsetX", None)
+    y = getattr(obj, "SectionOffsetY", None)
+    return V(getattr(x, "Value", 0.0), getattr(y, "Value", 0.0), 0)
+
+
+def ensure_section_offset_properties(obj):
+    if "SectionOffsetX" not in obj.PropertiesList:
+        obj.addProperty("App::PropertyDistance", "SectionOffsetX", "Path",
+                        "Offset the section from its path in local X")
+        obj.SectionOffsetX = 0.0
+    if "SectionOffsetY" not in obj.PropertiesList:
+        obj.addProperty("App::PropertyDistance", "SectionOffsetY", "Path",
+                        "Offset the section from its path in local Y")
+        obj.SectionOffsetY = 0.0
 
 
 def _edge_placement(edge, extend_start, spin):
@@ -232,6 +250,8 @@ class Profile:
                     setattr(obj, f"{end}MiterFromJoint", True)
         finally:
             self._restoring = False
+
+
         self._update_editor_modes(obj)
         # Outputs added by newer versions (section properties, miter axes) are
         # only filled in by a recompute. Touching here does not stick, because
@@ -258,6 +278,12 @@ class Profile:
         if prop in SECTION_PROPS or prop == "Label":
             from . import joints
             joints.touch_joints_of(obj)
+        if prop in ("Series", "Columns", "Rows", "CellSize", "Anchor", "Spin", "PathEdge"):
+            from . import skeleton
+            skeleton.touch_skeleton_of(obj)
+        if prop in ("SectionOffsetX", "SectionOffsetY") and obj.Document is not None:
+            from .linear import touch_carriages
+            touch_carriages(obj.Document)
         if prop == "Placement":  # also set by each recompute, after the new shape
             from .linear import member_moved  # it may now block a carriage
             member_moved(obj)
@@ -267,6 +293,12 @@ class Profile:
 
         length = obj.Length.Value
         placement = obj.Placement
+        section_shift = section_offset(obj)
+        offset_properties = ("SectionOffsetX" in obj.PropertiesList or "SectionOffsetY" in obj.PropertiesList)
+        offset_state = (offset_properties, section_shift.x, section_shift.y)
+        previous_offset_state = getattr(self, "_last_section_offset_state", None)
+        offset_changed = (offset_properties and (previous_offset_state is None or previous_offset_state != offset_state)
+                          or previous_offset_state is not None and previous_offset_state[0] and not offset_properties)
         # A miter written by a joint that has since been removed is stale: go
         # back to a square cut instead of keeping the old angle.
         for end in ("Start", "End"):
@@ -304,7 +336,10 @@ class Profile:
         # would only set its location, which assigning Placement below discards.
         face = geometry.make_section(dims, obj.Columns, obj.Rows, obj.SlotStyle, closed_faces(obj),
                                      obj.CenterBore, obj.CornerHoles, obj.Anchor)
-        pivot = geometry.anchor_offset(obj.Anchor, obj.Columns * dims["cell"], obj.Rows * dims["cell"])
+        if section_shift.Length:
+            face.translate(section_shift)
+        pivot = (geometry.anchor_offset(obj.Anchor, obj.Columns * dims["cell"], obj.Rows * dims["cell"])
+                 + section_shift)
         solid = geometry.make_solid(face, length, miters[0], miters[1], tuple(across), pivot)
 
         for i, end in enumerate(("Start", "End")):
@@ -322,6 +357,10 @@ class Profile:
 
         obj.Shape = solid
         obj.Placement = placement
+        self._last_section_offset_state = offset_state
+        if offset_changed:
+            from .linear import member_moved
+            member_moved(obj)
 
     def dumps(self):
         return None

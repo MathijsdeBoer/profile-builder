@@ -203,7 +203,7 @@ def _envelope(obj):
     face = Part.Face(Part.makePolygon([App.Vector(x0, y0, 0), App.Vector(x1, y0, 0), App.Vector(x1, y1, 0),
                                        App.Vector(x0, y1, 0), App.Vector(x0, y0, 0)]))
     width, height = obj.Columns * obj.CellSize.Value, obj.Rows * obj.CellSize.Value
-    pivot = geometry.anchor_offset(obj.Anchor, width, height)
+    pivot = geometry.anchor_offset(obj.Anchor, width, height) + feature.section_offset(obj)
     across = (obj.MiterStartAxis or obj.MiterAcross, obj.MiterEndAxis or obj.MiterAcross)
     solid = geometry.make_solid(face, obj.Length.Value, obj.MiterStart.Value, obj.MiterEnd.Value, across, pivot)
     return solid.transformed(obj.Placement.toMatrix())

@@ -17,7 +17,7 @@ The proposal is built (2026-09-29), with the gaps listed at the end. The code is
   - Every other profile and panel, plus the objects listed in Obstacles, is tested against the envelope swept along the rail: first a bounding box in the rail's frame, then a boolean with the envelope prism.
   - A member butting against another face does not block, unless the carriage wraps around that face. A T-junction member on the carriage's face splits the rail into runs; Run picks one (0 = the longest). A panel in the face's slot blocks the whole rail, which is reported as an error.
   - Mitered rail ends make the face under the carriage shorter (the inner face of a frame) or longer (the outer face) than the axis; the part of the face under the carriage's whole width decides.
-- **Outputs**: ClearRun, Stroke, Travel, Limits (what ends the run), Runs (all runs) and Warning. Warning covers a stroke below RequiredStroke, a carriage that does not fit, and a position outside the stroke. Warnings also go to the report view, and the tree's description shows the stroke. Lengths are formatted in the user's unit system.
+- **Outputs**: ClearRun, Stroke, Travel, Limits (what ends the run), Runs (all runs) and Warning. Warning covers a stroke below RequiredStroke, a carriage that does not fit, and a position outside the stroke. Warnings go to the report view, the Check frame findings and the cut-list Notes block; the tree's description shows the stroke. Lengths are formatted in the user's unit system.
 - **No cycles**: the carriage links to the rail and, through a Neighbours list (global-scope links, hidden in the property editor), to the profiles and panels whose bounding box reaches its swept envelope. It therefore recomputes after them, for example when the posts change from 40 to 45, and it never writes to them.
   - Members outside the envelope are not dependencies. A broken member elsewhere in the document (a deleted sketch line, a panel that is too thick) does not stop the carriage, and a member that rides on the carriage, such as a gantry beam standing on it, can follow it by an expression or on a sketch that does.
   - A profile or panel that moves into the envelope marks the carriage for recompute (`member_moved`, called when its Placement changes, which it also does at the end of each recompute). During a recompute FreeCAD recomputes such a carriage in its second pass, so it is found in the same recompute. New profiles and panels made by the workbench also mark carriages for recompute.
@@ -40,6 +40,7 @@ The proposal is built (2026-09-29), with the gaps listed at the end. The code is
   - an obstacle, a panel in the slot and a linked body;
   - save and reload, undo, the carriage task panel and a user's own description;
   - belts in the cut list, the CSV and the spreadsheet, prices per foot, a missing price, a missing pulley size, and the Pricing dialog.
+  - carriage warnings in the frame check and cut-list Notes block.
 
 Not done yet:
 - **Belts**: pulleys of different sizes, closed-loop belts sold by tooth count, and buying in whole metres or fixed lengths are not handled. The cost is the exact length times the price. Belt mass is not added to the delivery weight.
@@ -47,7 +48,6 @@ Not done yet:
 - **Members inside the envelope cannot follow the carriage**: such a member is a dependency of the carriage, so an expression or attachment that makes it follow the carriage would be a cycle, and FreeCAD refuses it. What rides on the carriage has to sit outside the envelope, for example a gantry beam standing on it (touching counts as outside).
 - **Simplifications**: two carriages on one rail do not block each other. The envelope is always centred on the face, and one end stop length applies to both ends.
 - **Units**: the task panel shows lengths in mm, like the other simple panels, and the metre-ware block's length column is in mm, like the rest of the cut list (see international-units-and-formats.md).
-- **Reporting**: the frame check and the cut list do not list carriage warnings such as a short stroke.
 - **Link**: the body is shown by copying its shape into the carriage (like a Draft clone), not through an App::Link.
 - **GUI testing**: the command, face picking and both dialogs inside FreeCAD's GUI were not run. The dialog logic is tested headless.
 

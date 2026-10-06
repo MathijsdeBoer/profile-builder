@@ -253,6 +253,12 @@ def build_report(doc):
     report.metre, metre_cost, metre_missing, metre_errors = metreware.report(doc, s.get("MetrePrices"))
     report.errors += metre_errors
     missing |= metre_missing
+    from . import linear
+    report.warnings.extend(
+        f"{obj.Label}: {obj.Warning}"
+        for obj in doc.Objects
+        if linear.is_carriage(obj) and obj.isValid() and "Touched" not in obj.State and obj.Warning
+    )
 
     # Placed hardware is counted, not priced yet.
     report.hardware = brackets.hardware(doc)

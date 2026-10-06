@@ -22,8 +22,9 @@ class ProfileBuilderWorkbench(Gui.Workbench):
         from . import commands
 
         groups = commands.register()
-        main = ["ProfileBuilder_Create"]
-        tools = ["ProfileBuilder_Joints", "ProfileBuilder_RunThrough", "ProfileBuilder_SwapJoint",
+        main = ["ProfileBuilder_Create", "ProfileBuilder_BoxFrame"]
+        tools = ["ProfileBuilder_Joints", "ProfileBuilder_AlignSlots",
+                 "ProfileBuilder_RunThrough", "ProfileBuilder_SwapJoint",
                  "ProfileBuilder_Panel", "ProfileBuilder_Carriage",
                  "ProfileBuilder_Brackets", "ProfileBuilder_CalibrateBracket",
                  "Separator", "ProfileBuilder_Pricing",

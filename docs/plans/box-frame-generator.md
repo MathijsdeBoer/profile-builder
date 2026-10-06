@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Planned |
+| Status | Partly done |
 | Category | Design & modelling |
 | Effort | L (first estimate M) |
 | Value | high |
@@ -27,11 +27,25 @@ Second stage: more generators (guard fence with N bays, ladder/conveyor frame wi
 
 ## What exists today
 
-Nothing generates frames today. The smoke test builds the 400 mm cube by hand: a Part::Feature compound of 12 lines (lines_object), 12 feature.make_profile(edge=(obj, 'EdgeN')) calls, then joints.create_joints(doc, cube, 'Butt', 'Vertical'). That gives 8x380 + 4x420 and a 420 mm outside, which is the recipe a generator would automate. create_joints already detects T-junctions, including mid-rails ending on post centre lines as PassingMembers, so extra rails need no new joint code.
+- `skeleton.py` provides a `Part::FeaturePython` skeleton with stable edge order: bottom edges 1-4,
+  top edges 5-8, posts 9-12.
+- `Box frame...` creates a closed cube, with outside, inside-clear and centre-line sizing, separate
+  post and rail series/sizes, vertical butt joints and a live cut-length summary.
+- The skeleton derives its insets from the attached profiles, so changing a section keeps the requested
+  outside or inside-clear dimensions. Profile size changes touch the skeleton without adding a link cycle.
+- The smoke test now builds the centre-line cube through the generator and checks the outside-sized
+  cube at 2020 and 3030 post sizes.
+
+The first stage is deliberately cube-only. Open faces, mid-rails, extra posts, panels, other frame
+templates and saving/inserting templates remain future work.
 
 ## Implementation approach
 
-Revised effort L, up from M, for what is described minus templates. The extra work is a live-preview panel that creates and deletes profiles when OpenTop or the mid-rail count changes, panels per side, three size modes with mixed post and rail series, stability tests, an icon and the README. An M first cut is feasible: skeleton plus a modal dialog that creates everything in one transaction, cube only. Templates are a separate L.
+Revised effort L, up from M, for the full proposal minus templates. The M first stage is implemented:
+a live-preview dialog creates the cube in one transaction, supports three size modes and mixed post and
+rail sections, and keeps the edge references stable. The remaining L-stage work is open-top/open-bottom
+frames, mid-rails and extra posts, optional panels, other generator types, and templates. Templates are a
+separate L.
 
 Implementation:
 - New skeleton.py with a Skeleton class (Part::FeaturePython, Type 'ProfileBuilder::Skeleton') using the same add()/add_properties/_restoring pattern as feature.Profile.
@@ -59,7 +73,7 @@ No hard blocker.
 ## Risks
 
 Effort M covers the skeleton and the box generator. Template save/insert adds roughly a week.
-- The skeleton cannot read its profiles' sizes without a dependency cycle, so its own section-size property can drift from the real profiles. Set it from the command or an expression, and warn when they differ.
+- The skeleton reads profile sizes through its InList without linking back to them. Changes to anchors, joint rules or other nonstandard layouts can still alter the physical bounds, so the task panel compares measured and requested dimensions and warns when they differ.
 - The edge order must never change between versions or when options are toggled (append only), or the PathEdge 'EdgeN' links jump to other edges.
 - Three-member corners depend on the Vertical through-rule.
 - Parameters that change a count (bays, cross members) cannot add objects during recompute, so they need a Regenerate command.

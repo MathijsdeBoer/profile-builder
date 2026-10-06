@@ -23,7 +23,7 @@ freecad.__path__.insert(0, os.path.join(ROOT, "freecad"))
 import FreeCAD as App  # noqa: E402
 import Part  # noqa: E402
 
-from freecad.profile_builder import cutlist, feature, joints, linear, panels  # noqa: E402
+from freecad.profile_builder import check as frame_check, cutlist, feature, joints, linear, panels  # noqa: E402
 
 _loaded = os.path.normcase(os.path.realpath(feature.__file__))
 if not _loaded.startswith(os.path.normcase(os.path.realpath(ROOT))):
@@ -120,6 +120,15 @@ check(near(rail.Length.Value, 555) and near(car.ClearRun.Value, 555) and near(ca
 check(f"{linear.length_text(3)} short of the required" in car.Warning,
       f"warning below the required stroke ({car.Warning})")
 check("see Warning" in car.Label2, f"the tree description points at the warning ({car.Label2})")
+findings = frame_check.carriages(doc)
+check(any(f.objects == [car.Name] and car.Warning in f.text for f in findings),
+      f"the frame check lists the carriage warning ({findings})")
+report = cutlist.build_report(doc)
+check(any(car.Label in warning and car.Warning in warning for warning in report.warnings),
+      "the cut-list report includes the carriage warning")
+notes = next((rows for title, _header, rows in cutlist._blocks(report) if title == "Notes"), [])
+check(any(car.Label in row[0] and car.Warning in row[0] for row in notes),
+      "the CSV and spreadsheet Notes block includes the carriage warning")
 car.RequiredStroke = 480
 doc.recompute()
 check(car.Warning == "", "warning gone when the requirement is met")
