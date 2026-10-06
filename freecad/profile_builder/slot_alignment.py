@@ -22,6 +22,7 @@ class Alignment:
     current_spin: float
     current_offset_x: float
     current_offset_y: float
+    slot_pair: object = None
 
     @property
     def changed(self):
@@ -43,11 +44,27 @@ class _Connection:
 @dataclass(frozen=True)
 class _FaceGroup:
     joint_name: str
+    reference_name: str
     dimension: str
     coefficient: float
+    target_face: str
+    reference_face: str
     target_slots: tuple
     reference_slots: tuple
     preference: float
+
+
+@dataclass(frozen=True)
+class SlotPair:
+    joint_name: str
+    reference_name: str
+    spin: float
+    target_face: str
+    target_slot: int
+    target_coordinate: float
+    reference_face: str
+    reference_slot: int
+    reference_coordinate: float
 
 
 def _angle_delta(first, second):
@@ -134,6 +151,27 @@ def _canonical_across(across):
     return across
 
 
+def _face_name(frame, normal):
+    for name, axis, sign in brackets.FACE_AXES:
+        if (getattr(frame, axis) * sign).dot(normal) > joints.PARALLEL:
+            return name
+    return None
+
+
+def _face_slots(obj, frame, face, normal, across):
+    slots = brackets.face_slots(obj, frame, normal, across)
+    if slots is None or not slots:
+        return ()
+    axis = next(axis for name, axis, _sign in brackets.FACE_AXES if name == face)
+    if axis == "y":
+        start, count = frame.rect[0], obj.Columns
+    else:
+        start, count = frame.rect[2], obj.Rows
+    cell = obj.CellSize.Value
+    return tuple((index + 1, position, start + (index + 0.5) * cell)
+                 for index, position in enumerate(slots[:count]))
+
+
 def _face_groups(profile, frame, connections):
     groups = []
     for connection in connections:
@@ -159,16 +197,26 @@ def _face_groups(profile, frame, connections):
                     dimension, coefficient = "y", y
                 if abs(coefficient) < 0.95:
                     continue
+                target_face = _face_name(frame, reference_direction)
+                reference_face = _face_name(connection.reference_frame, target_direction)
+                if target_face is None or reference_face is None:
+                    continue
+                target_slots = _face_slots(profile, frame, target_face, reference_direction, across)
+                reference_slots = _face_slots(connection.reference, connection.reference_frame,
+                                               reference_face, target_direction, across)
+                if not target_slots or not reference_slots:
+                    continue
                 preference = sum(direction.dot(across) for direction in connection.other_directions)
-                groups.append(_FaceGroup(connection.joint.Name, dimension, coefficient,
-                                         tuple(target_slots), tuple(reference_slots), preference))
+                groups.append(_FaceGroup(connection.joint.Name, connection.reference.Name, dimension, coefficient,
+                                         target_face, reference_face, target_slots, reference_slots, preference))
     return groups
 
 
 def _matches(group, coordinate, current):
     shift = group.coefficient * (coordinate - current)
     return sum(abs(target + shift - reference) <= brackets.SLOT_TOLERANCE
-               for target in group.target_slots for reference in group.reference_slots)
+               for _target_index, target, _target_local in group.target_slots
+               for _reference_index, reference, _reference_local in group.reference_slots)
 
 
 def _best_coordinates(groups, dimension, current):
@@ -176,7 +224,7 @@ def _best_coordinates(groups, dimension, current):
     if not relevant:
         return [current]
 
-    centers = {round(current + (reference - target) / group.coefficient, 9)
+    centers = {round(current + (reference[1] - target[1]) / group.coefficient, 9)
                for group in relevant for target in group.target_slots for reference in group.reference_slots}
     candidates = centers | {current}
     ordered = sorted(centers)
@@ -209,7 +257,7 @@ def _score(groups, offset_x, offset_y, current_x, current_y):
     return matches, len(matched_joints)
 
 
-def _best_alignment(profile, targets):
+def _best_alignment(profile, targets, slot_pair=None):
     current_spin = profile.Spin.Value
     offset = feature.section_offset(profile)
     current_x, current_y = offset.x, offset.y
@@ -219,43 +267,101 @@ def _best_alignment(profile, targets):
 
     best = None
     for spin in _candidate_spins(base_frame, connections, current_spin):
+        if slot_pair is not None and abs(_angle_delta(spin, slot_pair.spin)) > 1e-6:
+            continue
         frame = _frame_at_spin(base_frame, spin, current_spin)
         groups = _face_groups(profile, frame, connections)
         if not groups:
             continue
-        xs = _best_coordinates(groups, "x", current_x)
-        ys = _best_coordinates(groups, "y", current_y)
+        if slot_pair is None:
+            coordinate_pairs = [(_best_coordinates(groups, "x", current_x),
+                                 _best_coordinates(groups, "y", current_y))]
+        else:
+            anchor_groups = [group for group in groups
+                             if group.joint_name == slot_pair.joint_name
+                             and group.reference_name == slot_pair.reference_name
+                             and group.target_face == slot_pair.target_face
+                             and group.reference_face == slot_pair.reference_face]
+            coordinate_pairs = []
+            for group in anchor_groups:
+                targets = [item for item in group.target_slots if item[0] == slot_pair.target_slot]
+                references = [item for item in group.reference_slots if item[0] == slot_pair.reference_slot]
+                for _target_index, target, _target_local in targets:
+                    for _reference_index, reference, _reference_local in references:
+                        coordinate = current_x if group.dimension == "x" else current_y
+                        forced = coordinate + (reference - target) / group.coefficient
+                        xs = ([forced] if group.dimension == "x"
+                              else _best_coordinates(groups, "x", current_x))
+                        ys = ([forced] if group.dimension == "y"
+                              else _best_coordinates(groups, "y", current_y))
+                        coordinate_pairs.append((xs, ys))
+            if not coordinate_pairs:
+                continue
         old_center = base_frame.center_offset()
-        for offset_x in xs:
-            for offset_y in ys:
-                matches, matched_joints = _score(groups, offset_x, offset_y, current_x, current_y)
-                center = frame.center_offset()
-                movement = math.hypot(offset_x - current_x, offset_y - current_y)
-                spin_change = abs(_angle_delta(spin, current_spin))
-                shift = center - old_center
-                preference = sum(
-                    group.preference * group.coefficient *
-                    ((offset_x if group.dimension == "x" else offset_y)
-                     - (current_x if group.dimension == "x" else current_y))
-                    for group in groups
-                    if group.preference and _matches(
-                        group,
-                        offset_x if group.dimension == "x" else offset_y,
-                        current_x if group.dimension == "x" else current_y)
-                )
-                key = (matches, matched_joints, -movement, -spin_change, preference,
-                       shift.x, shift.y, shift.z, -spin)
-                if best is None or key > best[0]:
-                    best = (key, spin, offset_x, offset_y, matches, matched_joints,
-                            len({group.joint_name for group in groups}))
+        for xs, ys in coordinate_pairs:
+            for offset_x in xs:
+                for offset_y in ys:
+                    matches, matched_joints = _score(groups, offset_x, offset_y, current_x, current_y)
+                    center = frame.center_offset()
+                    movement = math.hypot(offset_x - current_x, offset_y - current_y)
+                    spin_change = abs(_angle_delta(spin, current_spin))
+                    shift = center - old_center
+                    preference = sum(
+                        group.preference * group.coefficient *
+                        ((offset_x if group.dimension == "x" else offset_y)
+                         - (current_x if group.dimension == "x" else current_y))
+                        for group in groups
+                        if group.preference and _matches(
+                            group,
+                            offset_x if group.dimension == "x" else offset_y,
+                            current_x if group.dimension == "x" else current_y)
+                    )
+                    key = (matches, matched_joints, -movement, -spin_change, preference,
+                           shift.x, shift.y, shift.z, -spin)
+                    if best is None or key > best[0]:
+                        best = (key, spin, offset_x, offset_y, matches, matched_joints,
+                                len({group.joint_name for group in groups}), slot_pair)
     if best is None or best[4] == 0:
         return None
-    _key, spin, offset_x, offset_y, matches, matched_joints, eligible_joints = best
+    _key, spin, offset_x, offset_y, matches, matched_joints, eligible_joints, slot_pair = best
     return Alignment(profile, spin, offset_x, offset_y, matches, matched_joints, eligible_joints,
-                     current_spin, current_x, current_y)
+                     current_spin, current_x, current_y, slot_pair)
 
 
-def plan(profiles):
+def slot_choices(profiles):
+    """Return the specific slot pairs available for each selected profile."""
+    targets = list({profile.Name: profile for profile in profiles if feature.is_profile(profile)}.values())
+    choices = {}
+    for profile in targets:
+        pairs = {}
+        if not profile.PathEdge:
+            choices[profile.Name] = []
+            continue
+        try:
+            feature.path_edge(profile)
+            frame, connections = _connections(profile, targets)
+        except ValueError:
+            choices[profile.Name] = []
+            continue
+        for spin in _candidate_spins(frame, connections, profile.Spin.Value):
+            turned = _frame_at_spin(frame, spin, profile.Spin.Value)
+            for group in _face_groups(profile, turned, connections):
+                for target_slot, _target_position, target_coordinate in group.target_slots:
+                    for reference_slot, _reference_position, reference_coordinate in group.reference_slots:
+                        pair = SlotPair(group.joint_name, group.reference_name, spin, group.target_face,
+                                        target_slot, target_coordinate, group.reference_face, reference_slot,
+                                        reference_coordinate)
+                        key = (pair.joint_name, pair.reference_name, round(pair.spin, 6), pair.target_face,
+                               pair.target_slot, pair.reference_face, pair.reference_slot)
+                        pairs[key] = pair
+        choices[profile.Name] = sorted(
+            pairs.values(),
+            key=lambda pair: (pair.joint_name, pair.reference_name, pair.reference_face,
+                              pair.reference_slot, pair.target_face, pair.target_slot, pair.spin))
+    return choices
+
+
+def plan(profiles, slot_pairs=None):
     """Plan alignments for selected profiles, using unselected butt-jointed members as references."""
     targets = list({profile.Name: profile for profile in profiles if feature.is_profile(profile)}.values())
     if not targets:
@@ -268,13 +374,16 @@ def plan(profiles):
             continue
         try:
             feature.path_edge(profile)
-            alignment = _best_alignment(profile, targets)
+            pair = (slot_pairs or {}).get(profile.Name)
+            alignment = _best_alignment(profile, targets, pair)
         except ValueError as error:
             notes.append(str(error))
             continue
         if alignment is None:
-            notes.append(translate("ProfileBuilder", "{profile} has no open, perpendicular slot faces to align with "
-                                   "an unselected profile at a butt joint").format(profile=profile.Label))
+            text = ("{profile} cannot align the selected slot pair with the current butt joints" if pair else
+                    "{profile} has no open, perpendicular slot faces to align with an unselected profile "
+                    "at a butt joint")
+            notes.append(translate("ProfileBuilder", text).format(profile=profile.Label))
             continue
         alignments.append(alignment)
         if alignment.matched_joints < alignment.eligible_joints:
