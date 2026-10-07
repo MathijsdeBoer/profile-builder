@@ -144,23 +144,37 @@ def _slot_floor_position(profile, frame, face_name, slot_index):
     
     axis, sign = face_data[face_name]
     normal = axis * sign
-    across = frame.z  # perpendicular to face
+    across = frame.z  # perpendicular to face (along slots)
     
-    # Get slot positions from brackets
-    slot_positions = brackets.face_slots(profile, frame, normal, across)
-    if not slot_positions or len(slot_positions) < slot_index:
+    # Use the existing _face_slots logic which handles None returns from brackets.face_slots
+    slot_list = _face_slots(profile, frame, face_name, normal, across)
+    
+    # _face_slots returns tuples of (index, position, local_coord)
+    # where index is 1-based
+    if not slot_list or len(slot_list) < slot_index:
         return None
     
-    # slot_positions is a list of positions along the perpendicular axis (in local coords)
-    slot_coord_local = slot_positions[slot_index - 1]
+    # Find the slot with matching index
+    matching_slot = None
+    for index, position, local_coord in slot_list:
+        if index == slot_index:
+            matching_slot = (position, local_coord)
+            break
+    
+    if matching_slot is None:
+        return None
+    
+    slot_position, local_coord = matching_slot
     
     # Determine which axis (x or y) the perpendicular coordinate is along
     perp_axis = frame.y if face_name in ("Left", "Right") else frame.x
     
     # Compute slot floor center in world coordinates
-    # The slot floor is at depth profile.SlotDepth.Value from the face
+    # The slot floor is at depth profile.SlotDepth.Value inward from the face
+    # slot_position is along the perpendicular axis
+    # local_coord is along the other parallel axis (not used for position, just for reference)
     depth_offset = profile.SlotDepth.Value * sign * -1
-    world_pos = frame.origin + perp_axis * slot_coord_local + normal * depth_offset
+    world_pos = frame.origin + perp_axis * slot_position + normal * depth_offset
     
     return (world_pos, normal)
 
