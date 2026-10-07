@@ -12,10 +12,12 @@ wide face. Rotating the post may orient the right face but cannot remove the hal
 
 ## Delivered
 
-- The **Align slots** command treats selected profiles as the ones to change and their unselected, butt-jointed
-  neighbours as references.
-- It chooses a section spin and local X/Y offsets that match the greatest number of slot centre-lines at applicable
-  joints. The user sees the proposed spin, offsets and match count before applying them.
+- The **Align slots** command treats whole profiles selected in the tree as the ones to change and their unselected,
+  butt-jointed neighbours as references.
+- Users can Ctrl-select flat slot-floor faces on the reference profiles to anchor the alignment to specific slots.
+  Without picked faces, the command chooses a section spin and local X/Y offsets that match the greatest number of
+  slot centre-lines at applicable joints.
+- The user sees the proposed spin, offsets and match count before applying them.
 - `SectionOffsetX` and `SectionOffsetY` are created only when a profile needs a non-zero shift and are saved with
   that profile. They shift the section relative to its path; sketch edges stay in place, and joints, frame checks,
   carriage obstacles and profile geometry use the shifted section.

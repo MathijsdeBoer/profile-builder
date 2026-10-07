@@ -39,10 +39,21 @@ def lines_object(doc, name, segments):
     return obj
 
 
+def slot_face_name(profile, face_name, slot_number):
+    for index, _face in enumerate(profile.Shape.Faces, start=1):
+        try:
+            picked = slot_alignment.picked_slot(profile, f"Face{index}")
+        except ValueError:
+            continue
+        if picked.face == face_name and picked.slot == slot_number:
+            return f"Face{index}"
+    raise AssertionError(f"no selectable slot floor for {profile.Label} {face_name} slot {slot_number}")
+
+
 doc = App.newDocument("slot_alignment_single")
 doc.UndoMode = 1
-lines = lines_object(doc, "SingleJoint", [((0, 0, 0), (400, 0, 0)),
-                                           ((0, 0, 0), (0, 0, 300))])
+lines = lines_object(doc, "SingleJoint", [((120, 50, 30), (520, 50, 30)),
+                                           ((120, 50, 30), (120, 50, 330))])
 rail = feature.make_profile("20-6", 2, 2, 100, doc, edge=(lines, "Edge1"))
 post = feature.make_profile("20-6", 1, 3, 100, doc, edge=(lines, "Edge2"))
 post.Spin = 90
@@ -55,6 +66,58 @@ check("SectionOffsetX" not in post.PropertiesList and "SectionOffsetY" not in po
 before, notes = brackets.joint_spots(joint, "All open faces", brackets.FrameInfo([joint]))
 check(not before and any("do not line up" in note for note in notes),
       f"4040 and 2060 slot pitches do not align before the tool ({notes})")
+rail.MiterAcross = "X"
+rail.MiterEnd = 79
+doc.recompute()
+slot_pairs = slot_alignment.slot_choices([post])[post.Name]
+anchor = next(pair for pair in slot_pairs if pair.reference_name == rail.Name)
+reference_face_name = slot_face_name(rail, anchor.reference_face, anchor.reference_slot)
+picked_reference = slot_alignment.picked_slot(rail, reference_face_name)
+picked_pairs = slot_alignment.slot_pairs_for_picked_slots([post], [picked_reference])
+picked_alignments, picked_notes = slot_alignment.plan([post], picked_pairs)
+check(len(picked_alignments) == 1 and not picked_notes
+      and picked_alignments[0].slot_pair.reference_name == rail.Name
+      and picked_alignments[0].slot_pair.reference_face == picked_reference.face
+      and picked_alignments[0].slot_pair.reference_slot == picked_reference.slot,
+      f"a picked reference slot floor on a mitered profile anchors the post alignment "
+      f"({picked_alignments}, {picked_notes})")
+non_planar = next((index for index, face in enumerate(rail.Shape.Faces, start=1)
+                   if type(face.Surface).__name__ != "Plane"), None)
+invalid_rejected = False
+if non_planar is not None:
+    try:
+        slot_alignment.picked_slot(rail, f"Face{non_planar}")
+    except ValueError:
+        invalid_rejected = True
+check(invalid_rejected, "a non-planar profile face is rejected as a slot reference")
+non_slot_plane_rejected = False
+for index, face in enumerate(rail.Shape.Faces, start=1):
+    if type(face.Surface).__name__ != "Plane":
+        continue
+    try:
+        slot_alignment.picked_slot(rail, f"Face{index}")
+    except ValueError:
+        non_slot_plane_rejected = True
+        break
+check(non_slot_plane_rejected, "a planar lip or side face is rejected as a slot reference")
+reference_pairs_by_face = {}
+for pair in slot_pairs:
+    if pair.reference_name == rail.Name:
+        reference_pairs_by_face.setdefault(pair.reference_face, {})[pair.reference_slot] = pair
+two_slot_face = next(((face_name, pairs) for face_name, pairs in reference_pairs_by_face.items()
+                      if len(pairs) >= 2), None)
+multiple_picks_aligned = False
+if two_slot_face is not None:
+    face_name, pairs = two_slot_face
+    selected_slots = [slot_alignment.picked_slot(
+        rail, slot_face_name(rail, face_name, slot_number))
+        for slot_number in sorted(pairs)[:2]]
+    multiple_pairs = slot_alignment.slot_pairs_for_picked_slots([post], selected_slots)
+    multiple_alignments, multiple_notes = slot_alignment.plan([post], multiple_pairs)
+    multiple_picks_aligned = (len(multiple_alignments) == 1
+                              and multiple_alignments[0].matches == len(selected_slots)
+                              and not multiple_notes)
+check(multiple_picks_aligned, "multiple picked reference slots are honored together")
 section = (post.Ix, post.Iy, post.Wx, post.Wy)
 alignments, notes = slot_alignment.plan([post])
 check(len(alignments) == 1 and not notes and alignments[0].matches == 2
@@ -71,8 +134,8 @@ check("SectionOffsetX" in post.PropertiesList and "SectionOffsetY" in post.Prope
 check((post.Ix, post.Iy, post.Wx, post.Wy) == section,
       "a section offset does not change the profile's section properties")
 envelope = frame_check._envelope(post).BoundBox
-check(abs((envelope.XMin + envelope.XMax) / 2 - post.SectionOffsetX.Value) < 1e-7
-      and abs((envelope.YMin + envelope.YMax) / 2 - post.SectionOffsetY.Value) < 1e-7
+check(abs((envelope.XMin + envelope.XMax) / 2 - (120 + post.SectionOffsetX.Value)) < 1e-7
+      and abs((envelope.YMin + envelope.YMax) / 2 - (50 + post.SectionOffsetY.Value)) < 1e-7
       and abs(envelope.XLength - 20) < 1e-7 and abs(envelope.YLength - 60) < 1e-7,
       f"the frame-check envelope includes the local section offset ({envelope})")
 post_name, joint_name = post.Name, joint.Name

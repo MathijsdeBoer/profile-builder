@@ -932,6 +932,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../commands.py"/>
+        <source>Ctrl-select exactly two flat slot-floor faces (one on each profile to align), then activate Align Slots. The first profile will be rotated/offset to align its slot with the second.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../pricing_ui.py"/>
         <source>Currency</source>
         <translation type="unfinished"></translation>
@@ -1130,11 +1135,6 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../commands.py"/>
-        <source>No selected profile could be aligned. Select only the profiles to change, leaving their adjoining profiles unselected.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <location filename="../../check_ui.py"/>
         <source>Notes</source>
         <translation type="unfinished"></translation>
@@ -1230,6 +1230,11 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../commands.py"/>
+        <source>Select exactly two slot-floor faces. You have selected {0}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../slot_alignment.py"/>
         <source>Select the profile or profiles whose slots should be aligned.</source>
         <translation type="unfinished"></translation>
@@ -1307,14 +1312,12 @@ Select a sketch and insert profiles on its edges first.</source>
     </message>
     <message>
         <location filename="../../commands.py"/>
-        <source>The selected profile sections will be rotated and shifted relative to their sketch paths. The sketch edges will not move.
-
-</source>
+        <source>The slot-floor faces already align. No adjustment needed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../commands.py"/>
-        <source>The selected profile slots already line up with their adjoining profiles.</source>
+        <source>The two slots must be on different profiles.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1374,17 +1377,22 @@ Select a sketch and insert profiles on its edges first.</source>
     </message>
     <message>
         <location filename="../../slot_alignment.py"/>
-        <source>{profile} has no open, perpendicular slot faces to align with an unselected profile at a butt joint</source>
+        <source>{profile} has no selected reference slot at an applicable butt joint</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../commands.py"/>
-        <source>{profile}: Spin {spin}; section offset X {x}, Y {y}; {matches} slot pair(s) at {matched} of {eligible} applicable butt joint(s).</source>
+        <location filename="../../slot_alignment.py"/>
+        <source>{profile}: only {matched} of {selected} selected reference slots can be lined up</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../slot_alignment.py"/>
         <source>{profile}: slots align at {matched} of {eligible} applicable butt joints</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>{profile}: {subelement} is not a slot floor. Select the flat bottom of an open slot.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1402,7 +1410,7 @@ Select a sketch and insert profiles on its edges first.</source>
     </message>
     <message>
         <location filename="../../commands.py"/>
-        <source>Align slots on selected profiles with unselected neighbours at butt joints; sketch edges stay fixed</source>
+        <source>Ctrl-select two flat slot-floor faces (one on each profile to align) and activate. The first profile clicked will be rotated/offset to align its slot with the second. Sketch edges stay fixed.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -1651,17 +1659,27 @@ Select the joint (orange dot or tree item), or a profile to swap both its ends.<
     <name>Workbench</name>
     <message>
         <location filename="../../init_gui.py"/>
+        <source>Component Tools</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../init_gui.py"/>
         <source>Design and generate standard aluminium T-slot / V-slot extrusion profiles</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../init_gui.py"/>
-        <source>Profile Builder</source>
+        <source>Joint &amp; Alignment</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../init_gui.py"/>
-        <source>Profile Builder tools</source>
+        <source>Output &amp; Analysis</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../init_gui.py"/>
+        <source>Profile Builder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

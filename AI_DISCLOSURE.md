@@ -43,7 +43,7 @@ which spread work over several subagents of the same model.
 | 2026-09-30 | Addon Manager readiness (licence texts, package metadata, CI on the FreeCAD 1.0 and 1.1 AppImages, translation groundwork with a pure-Python extraction tool) and the Check frame command. Running the suites on older FreeCAD versions in WSL showed that 0.21 was never really supported (no topological naming), so freecadmin became 1.0, and turned up two FreeCAD 1.0 bugs (amounts without cents, moments shown as energy). Two review workflows (six reviewers, six adversarial verifiers) checked commit 2212cdd and the new work: 35 of 39 findings were confirmed, among them sheets with different fan holes sharing one mark, undo bringing back printed marks, and a CI setup that would have crashed on every push. All were fixed with regression tests; the key fixes were mutation-checked. | `01f2672` |
 
 | 2026-10-05 | First stage of the box frame generator: a stable parametric skeleton, a live transactional cube-generation panel with outside/inside-clear/centre-line sizing, mixed post and rail sections, and FreeCAD smoke coverage. Added carriage warnings to the cut-list report. | |
-| 2026-10-05 | Slot alignment tool: solves profile spin and local section offsets against adjoining profiles, with FreeCAD tests for 4040 rails and 2060 posts. Keeps joints current when an aligned profile is deleted. | |
+| 2026-10-05 | Slot alignment tool: solves profile spin and local section offsets against adjoining profiles, supports reference selection by picking slot-floor faces, and has FreeCAD tests for 4040 rails and 2060 posts. Keeps joints current when an aligned profile is deleted. | |
 
 ## Who did what
 

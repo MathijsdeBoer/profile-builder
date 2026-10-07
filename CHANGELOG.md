@@ -9,6 +9,7 @@ Added:
   separate post and rail profiles and a live cut-length summary.
 - Linear-carriage warnings, such as insufficient stroke, in the cut-list Notes block.
 - Slot alignment at butt joints, including saved section offsets for matching different section grids.
+- Direct slot-floor selection to anchor slot alignment to specific slots on adjoining profiles.
 
 Fixed:
 - Deleting a profile refreshes its joints, including a manual through-profile choice.
