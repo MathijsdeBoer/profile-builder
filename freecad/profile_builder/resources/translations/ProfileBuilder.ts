@@ -69,6 +69,16 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../brackets.py"/>
+        <source>Corner: a bracket in each square corner between two profiles. End plate: a plate across both profiles on each flush side face of a T-junction, where one profile ends on the side of another.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets.py"/>
+        <source>Corners (see Corners) that get no brackets from this object, for example to use another bracket there</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../feature.py"/>
         <source>Cross-section area</source>
         <translation type="unfinished"></translation>
@@ -171,6 +181,21 @@
     <message>
         <location filename="../../skeleton.py"/>
         <source>Effective rail section width across the frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets.py"/>
+        <source>End plate: move the plate along the butting profile, away from the far face of the profile it butts (the plate's bar end is flush with that face at 0)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets.py"/>
+        <source>End plate: one plate on each slot of the butting profile's face, instead of one plate over the middle of the face (a plate across several slots)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets.py"/>
+        <source>Every corner this object could place brackets at, as used by SkippedCorners</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -296,6 +321,11 @@
     <message>
         <location filename="../../frame_stiffness.py"/>
         <source>Joint stiffness at the stiff bound, as a multiple of E·I/L of the butting profile (0: rigid joints)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets.py"/>
+        <source>Joint, profiles and side of each entry of Corners</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -845,6 +875,16 @@
     </message>
     <message>
         <location filename="../../brackets.py"/>
+        <source>With AllJoints: joints that get no brackets from this object</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets.py"/>
+        <source>With AllJoints: leave out the joints that another Brackets object was given explicitly, so different brackets can be used at different joints without doubling up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets.py"/>
         <source>Your supplier's article number, shown in the cut list's hardware list</source>
         <translation type="unfinished"></translation>
     </message>
@@ -944,6 +984,11 @@
     <message>
         <location filename="../../taskpanel.py"/>
         <source>Corner chambers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets_ui.py"/>
+        <source>Corners</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1564,6 +1609,22 @@ stock bar plan, sheets and the cost estimate</source>
     <message>
         <location filename="../../commands.py"/>
         <source>Cut list and costs</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ProfileBuilder_EndPlates</name>
+    <message>
+        <location filename="../../brackets_ui.py"/>
+        <source>End plates...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets_ui.py"/>
+        <source>Place your plate part (for example a T plate from your supplier) across the profiles at
+T-junctions, where one profile ends on the side of another. Pick the plate's two
+faces: first the one that lies on the profiles, then the one at the end of its stem.
+Select joints or profiles as well to limit where plates go.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

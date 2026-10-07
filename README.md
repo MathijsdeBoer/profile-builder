@@ -160,7 +160,9 @@ topological naming that keeps profiles on the right sketch edge). Tested on 1.0 
    the profiles and click **Brackets**. `Rule` decides whether a T-junction gets brackets on both sides or
    only on the sides facing into the frame, so not on a stub such as a post standing out above a rail.
    `SwapLegs` turns brackets with unequal legs, and `SlotOffset` moves a bracket whose slot key is
-   off-centre.
+   off-centre. Untick corners in the task panel to leave them without a bracket. For a flat T plate at a
+   T-junction, import the plate, pick the face that lies on the profiles and then the face at the end of its
+   stem, and click **End plates**; use a second Brackets object for each different part.
 7. Set prices in **Pricing and stock** and create the **Cut list and costs**.
 
 Joints need straight members. Butt joints need them to be perpendicular, and miter joints work where

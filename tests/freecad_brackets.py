@@ -439,6 +439,26 @@ check(len(new_joints) == 1 and new_joints[0] in gb.Joints and gb.Count == 6 and 
       f"all joints: the new T-junction gets a bracket on each side ({gb.Count})")
 check(not wrong and overlap < 1e-3 and clash < 1e-3, f"all joints: the new brackets fit ({wrong[:2]}, {overlap:.4f})")
 
+# A second Brackets object with its own joints: the all-joints one gives them up with SkipClaimed.
+special = brackets.make_brackets(doc, part, new_joints)
+doc.recompute()
+check(gb.Count == 6 and special.Count == 2, f"claimed joint: doubled without SkipClaimed ({gb.Count}, {special.Count})")
+gb.SkipClaimed = True
+doc.recompute()
+check(gb.Count == 4 and new_joints[0] not in gb.Joints and special.Count == 2 and gb.AllJoints,
+      f"SkipClaimed: the claimed joint is left to the other object ({gb.Count}, {special.Count})")
+doc.removeObject(special.Name)
+doc.recompute()
+check(gb.Count == 6 and new_joints[0] in gb.Joints, f"SkipClaimed: the joint comes back when the claim goes ({gb.Count})")
+gb.SkipClaimed = False
+gb.ExcludedJoints = [goal_joints[0]]
+doc.recompute()
+check(gb.Count == 4 and goal_joints[0] not in gb.Joints and gb.AllJoints,
+      f"ExcludedJoints: no brackets at the excluded joint ({gb.Count})")
+gb.ExcludedJoints = []
+doc.recompute()
+check(gb.Count == 6, f"ExcludedJoints cleared: brackets again ({gb.Count})")
+
 # A rail trimmed short of a post leaves no corner there.
 goal[2].ExtendStart = -5.0
 doc.recompute()
@@ -747,6 +767,91 @@ for angle in (45, 135):
     check(len(between_rails) == 8 and all(abs(V(*x).dot(diagonal)) > 0.999 for x, _y in between_rails),
           f"frame turned {angle}°: leg 1 on the rails along the same diagonal at every corner ({between_rails[:2]})")
 
+# ---- end plates at T-junctions, and switching single corners off ----------------------------
+
+def plate_picks(solid_obj):
+    shape = solid_obj.Shape
+    pick = {}
+    for i, f in enumerate(shape.Faces):
+        n = f.normalAt(0, 0) if not hasattr(f, "ParameterRange") else brackets._normal(f)
+        for key, vec in (("contact", V(0, 0, -1)), ("end", V(1, 0, 0))):
+            if (n - vec).Length < 1e-6:
+                pick[key] = f"Face{i + 1}"
+    return [(solid_obj, pick["contact"]), (solid_obj, pick["end"])]
+
+
+posts, post_joints, plate_part = frame_with("plates", [
+    ((0, 0, 0), (0, 0, 500)), ((400, 0, 0), (400, 0, 500)), ((0, 0, 400), (400, 0, 400))])
+plate_part.Shape = Part.makeBox(60, 20, 3, V(5, 7, 9))
+doc.recompute()
+plate_frame, plate_notes = brackets.calibrate(plate_picks(plate_part), "End plate")[1:]
+check(not plate_notes and (plate_frame.Base - V(5, 17, 9)).Length < 1e-6,
+      f"plate calibration: origin at the bar's end, mid-width, on the contact face ({plate_frame.Base}, {plate_notes})")
+check((plate_frame.Rotation.multVec(V(0, 0, 1)) - V(0, 0, 1)).Length < 1e-6
+      and (plate_frame.Rotation.multVec(V(1, 0, 0)) - V(1, 0, 0)).Length < 1e-6,
+      "plate calibration: stem along +X, plate on +Z")
+turn = App.Placement(V(10, -3, 4), App.Rotation(V(1, 1, 0), 70))
+plate_picks_flat = plate_picks(plate_part)
+plate_part.Placement = turn
+doc.recompute()
+try:
+    turned_frame = brackets.calibrate(plate_picks_flat, "End plate")[1]
+except Exception:
+    import traceback
+    print(ascii(traceback.format_exc()))
+    raise
+check(same_placement(turned_frame, plate_frame), "plate calibration: the same frame whatever the part's own placement")
+plate_part.Placement = App.Placement()
+doc.recompute()
+try:
+    brackets.calibrate(plate_picks(plate_part)[:1], "End plate")
+    check(False, "plate calibration: one face is refused")
+except ValueError as e:
+    check("stem" in str(e), f"plate calibration: one face is refused ({e})")
+
+pl = brackets.make_brackets(doc, plate_part, post_joints, plate_frame, Style="End plate")
+doc.recompute()
+check(pl.isValid() and pl.Count == 4 and len(pl.Corners) == 4 and len(pl.CornerLabels) == 4,
+      f"end plates: 2 sides at each of the 2 T-junctions ({pl.Count}, {pl.Notes})")
+shape = Part.getShape(pl)
+bb = shape.BoundBox
+check(abs(bb.YMin + 13) < 1e-3 and abs(bb.YMax - 13) < 1e-3 and abs(bb.ZMin - 390) < 1e-3
+      and abs(bb.ZMax - 410) < 1e-3 and abs(bb.XMin + 10) < 1e-3 and abs(bb.XMax - 410) < 1e-3,
+      f"end plates: lie on the outer faces, bar flush with the far face, stem on the rail ({bb})")
+pl.PlateOffset = 2.0
+doc.recompute()
+check(abs(Part.getShape(pl).BoundBox.XMin + 8) < 1e-3, "end plates: PlateOffset moves the bar's end")
+pl.PlateOffset = 0.0
+doc.recompute()
+
+pl.SkippedCorners = [pl.Corners[0]]
+doc.recompute()
+check(pl.Count == 3 and len(pl.Corners) == 4, f"SkippedCorners: one corner off, still listed ({pl.Count})")
+pl.SkippedCorners = list(pl.Corners)
+doc.recompute()
+check(pl.Count == 0 and any("SkippedCorners" in n for n in pl.Notes), f"all corners off: noted ({pl.Notes})")
+pl.SkippedCorners = []
+pl.PerSlot = True
+doc.recompute()
+check(pl.Count == 4, f"PerSlot: one slot per face, so still one plate per side ({pl.Count})")
+pl.PerSlot = False
+
+for wide in ((2, 1), (1, 2)):
+    posts[2].Columns, posts[2].Rows = wide
+    doc.recompute()
+    if any("flush" in n for n in pl.Notes):
+        break
+check(any("flush" in n for n in pl.Notes), f"plates: rail not flush with the posts is noted ({pl.Notes})")
+posts[2].Columns, posts[2].Rows = 1, 1
+doc.recompute()
+
+ring_doc_profiles, ring_doc_joints, ring_part = frame_with("plate_corner", [
+    ((0, 0, 0), (300, 0, 0)), ((0, 0, 0), (0, 300, 0))])
+ring_part.Shape = Part.makeBox(60, 20, 3)
+lone = brackets.make_brackets(doc, ring_part, ring_doc_joints, plate_frame, Style="End plate")
+doc.recompute()
+check(lone.Count == 0 and lone.Notes, f"plates at an L corner: none, with a note ({lone.Notes})")
+
 # ---- miter corners get no brackets yet, and say so -----------------------------------------
 
 doc = App.newDocument("mitred")
@@ -833,6 +938,10 @@ for picked in (frame_group, profile_link):
           and not shown, f"command: {picked.TypeId} holding the frame's profiles is not taken as the bracket")
 select([Picked(part)], [part])
 brackets_ui.CreateBrackets().Activated()
+# The objects made earlier in this script claim joints; compare against every joint here.
+check(shown and shown[-1].SkipClaimed, "command: an all-joints object skips joints claimed by others")
+shown[-1].SkipClaimed = False
+doc.recompute()
 check(shown and shown[-1].LinkedObject == part and shown[-1].SourceFrame.isIdentity() and shown[-1].Count == 4,
       "command: a whole part without picks is used as modelled")
 
@@ -846,6 +955,8 @@ check(made is not None and brackets.is_brackets(made) and made.LinkedObject == r
 select([Picked(raw, [f"Face{f1}", f"Face{f2}"])], [raw])
 brackets_ui.CreateBrackets().Activated()
 made = shown[-1]
+made.SkipClaimed = False
+doc.recompute()
 check(made.Count == 4 and len(made.Joints) == 4 and made.AllJoints,
       f"command: all joints, also later ones, when none are selected ({made.Count})")
 
@@ -861,6 +972,30 @@ check(same_placement(made.SourceFrame, skew) and not made.SwapLegs and made.Coun
       f"calibrate: picks on a placed bracket set the frame again ({made.SourceFrame})")
 select([], [])
 check(not brackets_ui.CalibrateBracket().IsActive(), "calibrate: inactive without a Brackets object")
+
+# End plates through the command, and recalibrating one.
+posts, post_joints, plate_part = frame_with("plate_command", [
+    ((0, 0, 0), (0, 0, 500)), ((400, 0, 0), (400, 0, 500)), ((0, 0, 400), (400, 0, 400))])
+plate_part.Shape = Part.makeBox(60, 20, 3, V(5, 7, 9))
+doc.recompute()
+App.setActiveDocument(doc.Name)
+shown.clear()
+messages.clear()
+select([Picked(plate_part, [s for _o, s in plate_picks(plate_part)])], [plate_part])
+brackets_ui.CreateEndPlates().Activated()
+made = shown[-1] if shown else None
+check(made is not None and made.Style == "End plate" and made.Count == 4 and made.AllJoints,
+      f"end plates command: 4 plates at the T-junctions ({made and (made.Style, made.Count)}, {messages[-1:]})")
+check(brackets_ui.CreateEndPlates().GetResources()["MenuText"] != brackets_ui.CreateBrackets().GetResources()["MenuText"],
+      "end plates command: has its own menu text")
+made.SourceFrame = App.Placement()
+doc.recompute()
+select([Picked(made, [f"0.{s}" for _o, s in plate_picks(plate_part)])], [])
+brackets_ui.CalibrateBracket().Activated()
+check((made.SourceFrame.Base - V(5, 17, 9)).Length < 1e-6,
+      f"calibrate: an End plate object is calibrated with the plate faces ({made.SourceFrame})")
+check(set(brackets.fields(made)) < set(brackets.FIELDS) | {"PerSlot", "PlateOffset"}
+      and "SlotOffset" not in brackets.fields(made), "end plates: their own property list")
 
 print("\n%d failure(s)" % len(failures))
 

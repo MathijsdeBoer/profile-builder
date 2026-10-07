@@ -26,7 +26,7 @@ class ProfileBuilderWorkbench(Gui.Workbench):
         joints_tools = ["ProfileBuilder_Joints", "ProfileBuilder_AlignSlots",
                         "ProfileBuilder_RunThrough", "ProfileBuilder_SwapJoint"]
         component_tools = ["ProfileBuilder_Panel", "ProfileBuilder_Carriage",
-                           "ProfileBuilder_Brackets", "ProfileBuilder_CalibrateBracket"]
+                           "ProfileBuilder_Brackets", "ProfileBuilder_EndPlates", "ProfileBuilder_CalibrateBracket"]
         output_tools = ["ProfileBuilder_Pricing",
                         "ProfileBuilder_CutList", "ProfileBuilder_ExportCutList", "ProfileBuilder_ExportPanels",
                         "ProfileBuilder_ShowMarks", "Separator",

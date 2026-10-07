@@ -213,6 +213,9 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - `SourceFrame` is in the part's own coordinates (`LinkTransform` is False, so the part's own
     Placement is ignored).
   - The type name "Fitting" is reserved for the planned feet and castors feature.
+  - `joint_spots` returns `(placement, first, second, (corner key, label))`. Corner keys use object names,
+    never labels; `SkippedCorners` holds keys, and a skipped corner stays listed in `Corners`. The End plate
+    style has its own frame (`plate_frame`) and property list (`fields(obj)`), and only T-junctions.
 - **Piece marks**:
   - The mark key is the `collect()` key as JSON. Changing that key (the product key, the rounding, the
     cut description) gives every group in existing documents a new mark.

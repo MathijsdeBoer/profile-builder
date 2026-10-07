@@ -88,8 +88,18 @@ Not done yet:
 - The "towards the panel side" variant of the inner rule, and a "Top and bottom" rule.
 - A preview in the calibration step, and GUI testing of the two commands and the task panel (the
   commands were only run headless with a stand-in selection).
-- More than one bracket part per Brackets object (for example different brackets for the 20 and 30
-  series corners of one frame); for now, use one Brackets object per part with selected joints.
+- Different brackets at different joints: give each Brackets object its own joints. An all-joints object
+  made by the command has `SkipClaimed` on, so it leaves out the joints other objects were given
+  explicitly, and `ExcludedJoints` removes further joints from it (both only apply with `AllJoints`;
+  edit `ExcludedJoints` in the property editor). Single corners are switched off with `SkippedCorners`
+  (a checklist in the task panel, from `Corners`/`CornerLabels`; the key names the joint, both profiles
+  and the corner position). Not done: one object with several bracket parts and per-series filters.
+- **End plates** (`Style = "End plate"`, command **End plates...**): a flat plate on the outer face of a
+  T-junction, one per side (or per slot with `PerSlot`). Calibrated from the face that lies on the profiles
+  and the face at the end of the stem (`plate_frame`). The bar's outer end sits flush with the through
+  profile's far face (`PlateOffset` adjusts). Needs the two profiles' faces flush on that side (else a
+  note). L corners get a note, `Rule` is ignored. Not done: L-shaped corner plates, plates over a cross of
+  three or more members, and a preview.
 - A bracket kit whose bracket and fasteners are separate App::Parts inside one App::Part looks like a
   library of brackets, so calibrating on it places only the picked App::Part. Putting the kit's bodies
   in one App::Part places the whole kit.
