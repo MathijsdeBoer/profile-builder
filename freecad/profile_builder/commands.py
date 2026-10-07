@@ -314,9 +314,9 @@ class AlignSlots:
             "MenuText": QT_TRANSLATE_NOOP("ProfileBuilder_AlignSlots", "Align slots"),
             "ToolTip": QT_TRANSLATE_NOOP(
                 "ProfileBuilder_AlignSlots",
-                "Ctrl-select two flat slot-floor faces (one on each profile to align) and activate. "
-                "The first profile clicked will be rotated/offset to align its slot with the second. "
-                "Sketch edges stay fixed."),
+                "Ctrl-select the inside of one slot on each of two profiles, then activate. "
+                "The profile picked first slides along its section so its slot lines up with the second. "
+                "Sketch edges, spin and length stay fixed."),
         }
 
     def IsActive(self):
@@ -346,9 +346,9 @@ class AlignSlots:
             return
 
         if len(picked_slots) < 2:
-            text = translate("ProfileBuilder", "Ctrl-select exactly two flat slot-floor faces "
-                           "(one on each profile to align), then activate Align Slots. "
-                           "The first profile will be rotated/offset to align its slot with the second.")
+            text = translate("ProfileBuilder", "Ctrl-select exactly two slot floors (the inside of one slot on each profile), "
+                           "then activate Align Slots. The profile picked first slides so its slot "
+                           "lines up with the second.")
             QtWidgets.QMessageBox.information(Gui.getMainWindow(), title, text)
             return
 
@@ -365,53 +365,30 @@ class AlignSlots:
             QtWidgets.QMessageBox.warning(Gui.getMainWindow(), title, text)
             return
 
-        # slot1 is the target (will be adjusted), slot2 is the reference
-        target_profile = slot1.profile
-        reference_profile = slot2.profile
-
-        # Try to get a slot pair (works for pre-jointed profiles)
-        slot_pair = slot_alignment.slot_pair_from_picks(slot1, slot2)
-        
-        alignments = None
-        notes = []
-        
-        if slot_pair is not None:
-            # Profiles are jointed; use the joint-based alignment logic
-            try:
-                slot_pairs_dict = {target_profile.Name: slot_pair}
-                alignments, notes = slot_alignment.plan([target_profile], slot_pairs_dict)
-            except ValueError as error:
-                QtWidgets.QMessageBox.warning(Gui.getMainWindow(), title, str(error))
-                return
-        else:
-            # Profiles are not jointed; use direct slot alignment
-            try:
-                alignments, notes = slot_alignment.direct_align_slots(slot1, slot2, doc)
-            except ValueError as error:
-                QtWidgets.QMessageBox.warning(Gui.getMainWindow(), title, str(error))
-                return
+        # The first slot picked is the one that moves; the second is the reference.
+        try:
+            alignments = slot_alignment.direct_align_slots(slot1, slot2)
+        except ValueError as error:
+            QtWidgets.QMessageBox.warning(Gui.getMainWindow(), title, str(error))
+            return
 
         changes = [alignment for alignment in alignments if alignment.changed]
         if not changes:
-            text = translate("ProfileBuilder", "The slot-floor faces already align. No adjustment needed.")
-            if notes:
-                text += "\n\n" + "\n".join(notes)
-            QtWidgets.QMessageBox.information(Gui.getMainWindow(), title, text)
+            QtWidgets.QMessageBox.information(
+                Gui.getMainWindow(), title,
+                translate("ProfileBuilder", "The two slots already line up."))
             return
 
-        # Apply directly without confirmation dialog
-        doc.openTransaction("Align slots")
         try:
             changed = slot_alignment.apply(doc, changes)
-            doc.commitTransaction()
-            for note in notes:
-                App.Console.PrintWarning(f"Profile Builder: {note}\n")
-            App.Console.PrintMessage(f"Profile Builder: aligned slots on {len(changed)} profile(s).\n")
-        except Exception as e:
-            doc.abortTransaction()
-            QtWidgets.QMessageBox.critical(Gui.getMainWindow(), title, f"Alignment failed: {str(e)}")
-
-
+        except Exception as error:
+            QtWidgets.QMessageBox.critical(
+                Gui.getMainWindow(), title,
+                translate("ProfileBuilder", "Aligning the slots failed: {error}").format(error=error))
+            return
+        App.Console.PrintMessage(
+            translate("ProfileBuilder", "Profile Builder: moved {profile} to line up its slot.\n")
+            .format(profile=changed[0].profile.Label))
 
 class RunThrough:
     def GetResources(self):

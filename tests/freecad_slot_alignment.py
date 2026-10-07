@@ -208,6 +208,74 @@ check(all(not any("do not line up" in note for note in notes) for _places, notes
       "slot alignment clears the slot-mismatch warnings at the four corners")
 App.closeDocument(doc.Name)
 
+
+def picked_floors(profile, across):
+    """(PickedSlot, world centre of its floor face) for the slot floors whose face normal is square to ``across``."""
+    found = []
+    for index, face in enumerate(profile.Shape.Faces, start=1):
+        try:
+            picked = slot_alignment.picked_slot(profile, f"Face{index}")
+        except ValueError:
+            continue
+        normal = slot_alignment._face_normal(feature.member_frame(profile), picked.face)
+        if abs(normal.dot(across)) < 1e-6:
+            found.append((picked, face.CenterOfMass))
+    return found
+
+
+def floor_across(profile, picked, across):
+    return next(centre for slot, centre in picked_floors(profile, across)
+                if (slot.face, slot.slot) == (picked.face, picked.slot)).dot(across)
+
+
+# Profiles that are not joined: a 2040 rail beside a 4040 post, aligned by picking one slot on each.
+for rail_spin in (0, 90):
+    doc = App.newDocument("slot_alignment_direct")
+    lines = lines_object(doc, "Loose", [((0, 0, 0), (0, 0, 300)), ((100, 13, 150), (300, 13, 150))])
+    post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(lines, "Edge1"))
+    rail = feature.make_profile("20-6", 1, 2, 100, doc, edge=(lines, "Edge2"))
+    rail.Spin = rail_spin
+    doc.recompute()
+    across = rail.Placement.Rotation.multVec(V(0, 0, 1)).cross(post.Placement.Rotation.multVec(V(0, 0, 1)))
+    across.normalize()
+    rail_floors = picked_floors(rail, across)
+    post_floors = picked_floors(post, across)
+    check(bool(rail_floors) and bool(post_floors),
+          f"spin {rail_spin}: both profiles have pickable slot floors square to the alignment direction")
+    target = rail_floors[0][0]
+    reference = post_floors[0][0]
+    gap_before = floor_across(post, reference, across) - floor_across(rail, target, across)
+    placement_before = (rail.Placement.Base, rail.Length.Value)
+    check(abs(gap_before) > 1, f"spin {rail_spin}: the slots start out of line ({gap_before:.3f} mm)")
+
+    plans = slot_alignment.direct_align_slots(target, reference)
+    changed = slot_alignment.apply(doc, plans)
+    doc.recompute()
+    gap_after = floor_across(post, reference, across) - floor_across(rail, target, across)
+    check(len(changed) == 1 and abs(gap_after) < 1e-6,
+          f"spin {rail_spin}: the picked slots line up without any joint ({gap_after:.6f} mm)")
+    check(not [o for o in doc.Objects if joints.is_joint(o)], f"spin {rail_spin}: no joint was created")
+    check((rail.Placement.Base - placement_before[0]).Length < 1e-7 and rail.Length.Value == placement_before[1],
+          f"spin {rail_spin}: the target keeps its sketch edge and length")
+    check(not slot_alignment.direct_align_slots(target, reference)[0].changed,
+          f"spin {rail_spin}: aligning again changes nothing")
+    App.closeDocument(doc.Name)
+
+# Parallel profiles are lined up across the face normal.
+doc = App.newDocument("slot_alignment_parallel")
+lines = lines_object(doc, "Parallel", [((0, 0, 0), (0, 0, 300)), ((60, 7, 0), (60, 7, 300))])
+post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(lines, "Edge1"))
+neighbour = feature.make_profile("20-6", 1, 2, 100, doc, edge=(lines, "Edge2"))
+doc.recompute()
+parallel_target = slot_alignment.PickedSlot(neighbour, "Right", 1)
+parallel_reference = slot_alignment.PickedSlot(post, "Left", 1)
+try:
+    plan = slot_alignment.direct_align_slots(parallel_target, parallel_reference)
+    check(len(plan) == 1 and plan[0].changed, "parallel profiles produce an alignment")
+except ValueError as error:
+    check(False, f"parallel profiles can be aligned ({error})")
+App.closeDocument(doc.Name)
+
 print(f"{len(failures)} failure(s)")
 sys.stdout.flush()
 os._exit(1 if failures else 0)

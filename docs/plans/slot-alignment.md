@@ -12,12 +12,13 @@ wide face. Rotating the post may orient the right face but cannot remove the hal
 
 ## Delivered
 
-- The **Align slots** command treats whole profiles selected in the tree as the ones to change and their unselected,
-  butt-jointed neighbours as references.
-- Users can Ctrl-select flat slot-floor faces on the reference profiles to anchor the alignment to specific slots.
-  Without picked faces, the command chooses a section spin and local X/Y offsets that match the greatest number of
-  slot centre-lines at applicable joints.
-- The user sees the proposed spin, offsets and match count before applying them.
+- The **Align slots** command takes exactly two Ctrl-selected slot floors, one per profile. The first profile is
+  moved, the second is the reference, and the change applies at once without a dialog. No joint is required.
+- The slots are lined up across the cross product of the two profile axes (across the face normal for parallel
+  profiles) by changing the target's section offset only; its spin, sketch edge and length stay as they are. A
+  target turned so that direction is not along its section X or Y is refused with a message.
+- slot_alignment.plan() still offers the joint-based search (spin and offsets matching as many slots as possible at
+  butt joints) as an API, but the command no longer uses it.
 - `SectionOffsetX` and `SectionOffsetY` are created only when a profile needs a non-zero shift and are saved with
   that profile. They shift the section relative to its path; sketch edges stay in place, and joints, frame checks,
   carriage obstacles and profile geometry use the shifted section.
@@ -26,6 +27,5 @@ wide face. Rotating the post may orient the right face but cannot remove the hal
 
 ## Scope
 
-The command works on profiles following sketch edges at existing butt joints. It does not move sketches, infer
-unjointed contacts, or align miter joints. If several joints cannot all be matched, the report says how many
-applicable joints align so the user can cancel or adjust the result.
+The command moves only the section offset of the first profile picked. It does not move sketches, rotate profiles
+or check that the slots face each other.

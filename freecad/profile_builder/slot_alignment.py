@@ -74,139 +74,60 @@ class PickedSlot:
     slot: int
 
 
-def direct_align_slots(target_slot, reference_slot, doc):
-    """Directly align two picked slot floors without relying on joints.
-    
-    target_slot: the slot to align (on the profile to be adjusted)
-    reference_slot: the reference slot (on the profile to stay fixed)
-    doc: the FreeCAD document
-    
-    Returns: (list of Alignment objects, list of notes)
+def _slot_center(profile, frame, face, slot):
+    """World position of the centre line of slot ``slot`` (1-based) on ``face``, on the profile axis plane."""
+    if face in ("Left", "Right"):
+        along, start, count = frame.y, frame.rect[2], profile.Rows
+    else:
+        along, start, count = frame.x, frame.rect[0], profile.Columns
+    if not 1 <= slot <= count:
+        raise ValueError(translate("ProfileBuilder", "{profile} has no slot {slot} on its {face} face")
+                         .format(profile=profile.Label, slot=slot, face=face))
+    return frame.origin + along * (start + (slot - 0.5) * profile.CellSize.Value)
+
+
+def _face_normal(frame, face):
+    for name, axis, sign in brackets.FACE_AXES:
+        if name == face:
+            return getattr(frame, axis) * sign
+    raise ValueError(face)
+
+
+def direct_align_slots(target_slot, reference_slot):
+    """Slide the target profile along its section so its picked slot lines up with the reference slot.
+
+    The slots are lined up across both profile axes (their cross product), the way two slots meet at
+    a butt joint. Parallel profiles are lined up across the face normal instead. The target keeps its
+    spin and its sketch edge; only its section offset changes.
     """
-    target_profile = target_slot.profile
-    reference_profile = reference_slot.profile
-    
-    # Get frames for both profiles
-    target_frame = feature.member_frame(target_profile)
-    reference_frame = feature.member_frame(reference_profile)
-    
-    # Get slot floor centers in world coordinates
-    target_info = _slot_floor_position(target_profile, target_frame, target_slot.face, target_slot.slot)
-    reference_info = _slot_floor_position(reference_profile, reference_frame, reference_slot.face, reference_slot.slot)
-    
-    if target_info is None or reference_info is None:
-        raise ValueError(f"Could not locate slot floor positions.")
-    
-    target_pos, target_normal = target_info
-    reference_pos, reference_normal = reference_info
-    
-    # Compute offset from target slot to reference slot
-    offset_world = reference_pos - target_pos
-    
-    # Project offset into target profile's local frame
-    offset_x = offset_world.dot(target_frame.x)
-    offset_y = offset_world.dot(target_frame.y)
-    
-    # Create alignment with no spin change, only offset
-    current_offset = feature.section_offset(target_profile)
-    alignment = Alignment(
-        profile=target_profile,
-        spin=target_profile.Spin.Value,  # No rotation
-        offset_x=current_offset.x + offset_x,
-        offset_y=current_offset.y + offset_y,
-        matches=1,
-        matched_joints=0,
-        eligible_joints=0,
-        current_spin=target_profile.Spin.Value,
-        current_offset_x=current_offset.x,
-        current_offset_y=current_offset.y,
-        slot_pair=None
-    )
-    
-    return [alignment], []
+    target, reference = target_slot.profile, reference_slot.profile
+    target_frame = feature.member_frame(target)
+    reference_frame = feature.member_frame(reference)
 
+    across = target_frame.z.cross(reference_frame.z)
+    if across.Length < 1e-6:
+        across = target_frame.z.cross(_face_normal(target_frame, target_slot.face))
+    across.normalize()
 
-def _slot_floor_position(profile, frame, face_name, slot_index):
-    """Get the world position of a slot floor center.
-    
-    Returns: (world_position_vector, face_normal) or None if not found
-    """
-    # Get the normal vector for this face
-    face_data = {
-        "Right": (frame.x, 1),
-        "Left": (frame.x, -1),
-        "Top": (frame.y, 1),
-        "Bottom": (frame.y, -1),
-    }
-    
-    if face_name not in face_data:
-        return None
-    
-    axis, sign = face_data[face_name]
-    normal = axis * sign
-    across = frame.z  # perpendicular to face (along slots)
-    
-    # Use the existing _face_slots logic which handles None returns from brackets.face_slots
-    slot_list = _face_slots(profile, frame, face_name, normal, across)
-    
-    # _face_slots returns tuples of (index, position, local_coord)
-    # where index is 1-based
-    if not slot_list or len(slot_list) < slot_index:
-        return None
-    
-    # Find the slot with matching index
-    matching_slot = None
-    for index, position, local_coord in slot_list:
-        if index == slot_index:
-            matching_slot = (position, local_coord)
-            break
-    
-    if matching_slot is None:
-        return None
-    
-    slot_position, local_coord = matching_slot
-    
-    # Determine which axis (x or y) the perpendicular coordinate is along
-    perp_axis = frame.y if face_name in ("Left", "Right") else frame.x
-    
-    # Compute slot floor center in world coordinates
-    # The slot floor is at depth profile.SlotDepth.Value inward from the face
-    # slot_position is along the perpendicular axis
-    # local_coord is along the other parallel axis (not used for position, just for reference)
-    depth_offset = profile.SlotDepth.Value * sign * -1
-    world_pos = frame.origin + perp_axis * slot_position + normal * depth_offset
-    
-    return (world_pos, normal)
+    along_x = target_frame.x.dot(across)
+    along_y = target_frame.y.dot(across)
+    if abs(along_x) >= abs(along_y):
+        dimension, coefficient = "x", along_x
+    else:
+        dimension, coefficient = "y", along_y
+    if abs(coefficient) < 0.95:
+        raise ValueError(translate(
+            "ProfileBuilder", "{target} is turned (Spin) so the slots cannot be lined up by sliding it; "
+            "set its Spin so its faces are square to {reference} first.")
+            .format(target=target.Label, reference=reference.Label))
 
-
-def slot_pair_from_picks(target_slot, reference_slot):
-    """Create a SlotPair from two PickedSlot selections.
-    
-    target_slot: the slot to align (on the profile to be adjusted)
-    reference_slot: the reference slot (on the profile to stay fixed)
-    
-    Tries to find a pair in pre-computed joint candidates first,
-    then returns None for arbitrary profile pairs (to be handled by direct_align_slots).
-    """
-    target_profile = target_slot.profile
-    reference_profile = reference_slot.profile
-    
-    # Try to find a pair in pre-computed joint candidates
-    all_choices = _slot_choices([target_profile, reference_profile])
-    candidates = all_choices.get(target_profile.Name, [])
-    
-    for pair in candidates:
-        if (pair.reference_name == reference_profile.Name and
-            pair.target_face == target_slot.face and
-            pair.target_slot == target_slot.slot and
-            pair.reference_face == reference_slot.face and
-            pair.reference_slot == reference_slot.slot):
-            return pair
-    
-    # No pre-computed pair found. Return None to signal that direct_align_slots should be used.
-    return None
-
-
+    gap = (_slot_center(reference, reference_frame, reference_slot.face, reference_slot.slot)
+           - _slot_center(target, target_frame, target_slot.face, target_slot.slot)).dot(across)
+    current = feature.section_offset(target)
+    offset_x = current.x + (gap / coefficient if dimension == "x" else 0.0)
+    offset_y = current.y + (gap / coefficient if dimension == "y" else 0.0)
+    spin = target.Spin.Value
+    return [Alignment(target, spin, offset_x, offset_y, 1, 0, 0, spin, current.x, current.y)]
 
 
 def _angle_delta(first, second):

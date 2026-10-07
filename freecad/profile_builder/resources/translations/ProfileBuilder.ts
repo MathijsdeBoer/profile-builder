@@ -867,6 +867,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../commands.py"/>
+        <source>Aligning the slots failed: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../taskpanel.py"/>
         <source>Anchor</source>
         <translation type="unfinished"></translation>
@@ -933,7 +938,7 @@
     </message>
     <message>
         <location filename="../../commands.py"/>
-        <source>Ctrl-select exactly two flat slot-floor faces (one on each profile to align), then activate Align Slots. The first profile will be rotated/offset to align its slot with the second.</source>
+        <source>Ctrl-select exactly two slot floors (the inside of one slot on each profile), then activate Align Slots. The profile picked first slides so its slot lines up with the second.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1180,6 +1185,12 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../commands.py"/>
+        <source>Profile Builder: moved {profile} to line up its slot.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../pricing_ui.py"/>
         <source>Profiles (bar length empty: use the default)</source>
         <translation type="unfinished"></translation>
@@ -1312,7 +1323,7 @@ Select a sketch and insert profiles on its edges first.</source>
     </message>
     <message>
         <location filename="../../commands.py"/>
-        <source>The slot-floor faces already align. No adjustment needed.</source>
+        <source>The two slots already line up.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1382,6 +1393,11 @@ Select a sketch and insert profiles on its edges first.</source>
     </message>
     <message>
         <location filename="../../slot_alignment.py"/>
+        <source>{profile} has no slot {slot} on its {face} face</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../slot_alignment.py"/>
         <source>{profile}: only {matched} of {selected} selected reference slots can be lined up</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1400,6 +1416,11 @@ Select a sketch and insert profiles on its edges first.</source>
         <source>{size} (on side)</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>{target} is turned (Spin) so the slots cannot be lined up by sliding it; set its Spin so its faces are square to {reference} first.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ProfileBuilder_AlignSlots</name>
@@ -1410,7 +1431,7 @@ Select a sketch and insert profiles on its edges first.</source>
     </message>
     <message>
         <location filename="../../commands.py"/>
-        <source>Ctrl-select two flat slot-floor faces (one on each profile to align) and activate. The first profile clicked will be rotated/offset to align its slot with the second. Sketch edges stay fixed.</source>
+        <source>Ctrl-select the inside of one slot on each of two profiles, then activate. The profile picked first slides along its section so its slot lines up with the second. Sketch edges, spin and length stay fixed.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
