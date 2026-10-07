@@ -10,6 +10,7 @@ Added:
 - Linear-carriage warnings, such as insufficient stroke, in the cut-list Notes block.
 - Slot alignment at butt joints, including saved section offsets for matching different section grids.
 - Align slots works from two picked slot floors: the first profile slides to line its slot up with the second, with or without a joint and without a confirmation dialog.
+- Panels accept profiles whose centre lines are not in one plane (different section sizes, or a section offset from Align slots), as long as the panel plane reaches each profile and, for In slot, passes through one of its slots.
 
 Fixed:
 - Deleting a profile refreshes its joints, including a manual through-profile choice.

@@ -457,6 +457,57 @@ check(gone and again == "A3", f"after undoing the first cut list the 450 mm piec
 App.closeDocument(mdoc.Name)
 App.closeDocument(rdoc.Name)
 
+# Members need not be centred on one plane: a section offset (Align slots) or a different section size moves
+# a centre line, as long as the panel plane still reaches the member and hits one of its slots.
+doc = App.newDocument("pbwall")  # lines_object() uses the global doc
+wall = lines_object("Wall", [((0, 0, 0), (400, 0, 0)), ((400, 0, 0), (400, 0, 300)),
+                             ((400, 0, 300), (0, 0, 300)), ((0, 0, 300), (0, 0, 0))])
+doc.recompute()
+bottom = feature.make_profile("20-6", 1, 3, 100, doc, edge=(wall, "Edge1"))
+right_post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(wall, "Edge2"))
+top = feature.make_profile("20-6", 2, 1, 100, doc, edge=(wall, "Edge3"))
+left_post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(wall, "Edge4"))
+feature.ensure_section_offset_properties(bottom)
+bottom.SectionOffsetX = -10
+doc.recompute()
+shifted = feature.member_frame(bottom).center_offset()
+check(abs(shifted.y + 10) < 1e-7 or abs(shifted.y - 10) < 1e-7,
+      f"the bottom rail's section centre is 10 mm off its sketch edge ({shifted})")
+wall_panel = panels.make_panel(doc, [bottom, right_post, top, left_post], Mount="In slot", Thickness=3)
+doc.recompute()
+try:
+    lay = panels.layout(wall_panel)
+    spread = max(u for u, _v in lay.corners) - min(u for u, _v in lay.corners)
+    check(wall_panel.isValid() and not wall_panel.Shape.isNull() and spread > 300,
+          f"a panel fits members whose centre lines are 10 mm apart (width {spread:.1f})")
+except ValueError as error:
+    check(False, f"a panel fits members whose centre lines are 10 mm apart ({error})")
+
+wall_panel.Profiles = [right_post, top, left_post, bottom]
+try:
+    panels.layout(wall_panel)
+    check(False, "a plane through the middle of the post misses its slots")
+except ValueError as error:
+    message = str(error)
+    check("misses the slots" in message, f"a plane between a post's slots is reported ({message})")
+    wall_panel.PlaneOffset = float(message.split("PlaneOffset")[1].split("mm")[0])
+    try:
+        panels.layout(wall_panel)
+        check(True, "the suggested PlaneOffset puts the plane through every slot")
+    except ValueError as again:
+        check(False, f"the suggested PlaneOffset puts the plane through every slot ({again})")
+
+bottom.SectionOffsetX = -100
+doc.recompute()
+wall_panel.PlaneOffset = 0
+wall_panel.Profiles = [bottom, right_post, top, left_post]
+try:
+    panels.layout(wall_panel)
+    check(False, "a member far from the panel plane is rejected")
+except ValueError as error:
+    check("does not lie in the plane" in str(error), f"a member far from the panel plane is rejected ({error})")
+App.closeDocument(doc.Name)
+
 # Older documents: panels open unchanged.
 for fixture in ("legacy_8733122.FCStd", "legacy_ead3f7d.FCStd"):
     old = App.openDocument(os.path.join(ROOT, "tests", "fixtures", fixture))

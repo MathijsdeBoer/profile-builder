@@ -95,7 +95,13 @@ def _face_towards(frame, w):
     return "Top" if wy > 0 else "Bottom"
 
 
-def _check_slot(obj, frame, face, n, plane_offset, thickness):
+def _check_slot(obj, frame, face, n, plane_offset, thickness, panel_offset=None):
+    """Check that the panel plane, ``plane_offset`` from this member's section centre, hits one of its slots.
+
+    ``panel_offset`` is the panel's own PlaneOffset, the value to suggest when the plane misses.
+    """
+    if panel_offset is None:
+        panel_offset = plane_offset
     if getattr(obj, f"Closed{face}"):
         raise ValueError(f"{obj.Label} has no slot on the face towards the panel ({face})")
     if thickness > obj.SlotOpening.Value - 0.2:
@@ -113,7 +119,7 @@ def _check_slot(obj, frame, face, n, plane_offset, thickness):
     if abs(nearest - position) > 0.5:
         shift = (nearest - position) * n.dot(axis)
         raise ValueError(f"The panel plane misses the slots of {obj.Label}; "
-                         f"try PlaneOffset {plane_offset + shift:+g} mm")
+                         f"try PlaneOffset {panel_offset + shift:+g} mm")
 
 
 def _intersect(p1, d1, p2, d2):
@@ -165,7 +171,10 @@ def layout(obj):
         raise ValueError("The profiles around a panel cannot all be parallel")
     origin = segments[0][0]
     for m, f, (a, _b) in zip(members, frames, segments):
-        if abs(f.z.dot(n)) > 1e-3 or abs((a - origin).dot(n)) > 0.5:
+        # Members of different sizes or with a section offset need not be centred on one plane: the
+        # section only has to reach the panel plane (the first member's centre plane).
+        reach = f.support(n) - f.center_offset().dot(n)
+        if abs(f.z.dot(n)) > 1e-3 or abs((a - origin).dot(n)) > reach + 0.5:
             raise ValueError(f"{m.Label} does not lie in the plane of the panel")
 
     e1 = frames[0].z
@@ -180,13 +189,15 @@ def layout(obj):
     lines = []
     inward = []
     for m, f, (a, _b), mid in zip(members, frames, segments, mids):
+        # Where the panel plane lies relative to this member's own section centre.
+        to_plane = obj.PlaneOffset.Value + (origin - a).dot(n)
         w = n.cross(f.z)
         if (centroid - mid).dot(w) < 0:
             w = -w
         inward.append(w)
         inner = f.support(w) - f.center_offset().dot(w)
         if obj.Mount == "In slot":
-            _check_slot(m, f, _face_towards(f, w), n, obj.PlaneOffset.Value, obj.Thickness.Value)
+            _check_slot(m, f, _face_towards(f, w), n, to_plane, obj.Thickness.Value, obj.PlaneOffset.Value)
             depth = obj.InsertDepth.Value or m.SlotDepth.Value
             offset = inner - depth + obj.Clearance.Value
         else:
