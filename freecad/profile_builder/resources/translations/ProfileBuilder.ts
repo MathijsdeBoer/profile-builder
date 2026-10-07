@@ -862,6 +862,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../context_tasks.py"/>
+        <source>Add to the frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../commands.py"/>
         <source>Align slots</source>
         <translation type="unfinished"></translation>
@@ -884,6 +889,11 @@
     <message>
         <location filename="../../box_frame_ui.py"/>
         <source>Box frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../context_tasks.py"/>
+        <source>Brackets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -934,6 +944,11 @@
     <message>
         <location filename="../../taskpanel.py"/>
         <source>Corner chambers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../context_tasks.py"/>
+        <source>Create</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1069,6 +1084,11 @@ With straight edges selected, one profile is placed on each edge.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../context_tasks.py"/>
+        <source>Join and trim</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../check_ui.py"/>
         <source>Join these ends</source>
         <translation type="unfinished"></translation>
@@ -1092,6 +1112,11 @@ Select a sketch and insert profiles on its edges first.</source>
     <message>
         <location filename="../../box_frame_ui.py"/>
         <source>Lengths accept FreeCAD units. Vertical posts run through butt joints; changing the joint rule can alter the frame size.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../context_tasks.py"/>
+        <source>Line up slots</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1218,6 +1243,11 @@ Select a sketch and insert profiles on its edges first.</source>
     <message>
         <location filename="../../commands.py"/>
         <source>Renumber piece marks</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../context_tasks.py"/>
+        <source>Report and check</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

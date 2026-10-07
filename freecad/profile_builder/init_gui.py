@@ -45,10 +45,11 @@ class ProfileBuilderWorkbench(Gui.Workbench):
                         ["Separator"] + output_tools + ["ProfileBuilder_RenumberMarks"])
 
     def Activated(self):
-        pass
+        from . import context_tasks
+        Gui.Control.addTaskWatcher(context_tasks.watchers())
 
     def Deactivated(self):
-        pass
+        Gui.Control.clearTaskWatcher()
 
     def GetClassName(self):
         return "Gui::PythonWorkbench"

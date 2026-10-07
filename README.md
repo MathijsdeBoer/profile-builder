@@ -46,6 +46,10 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
   way two slots meet at a butt joint. No joint is needed, nothing is confirmed, and sketch edges, spin and
   length stay as they are; the section offset is saved and the change is one undo step. The two profiles
   must be square to each other, so a turned profile asks you to set its Spin first.
+- **Tasks tab**: with the workbench active, the Tasks tab in the Combo View offers the commands that fit
+  what is selected: create tools when nothing relevant is selected (plus the cut list, checks and exports),
+  joint and part tools for selected profiles or joints, **Align slots** for two picked slot floors, and
+  **Calibrate bracket** for a Brackets object. It hides while a task dialog is open.
 - **Brackets**: your own bracket part, for example a STEP file from your supplier, is placed in every
   square corner of the butt joints, one per slot that lines up on both profiles. Pick the bracket's two
   faces that touch the profiles once, and the brackets follow sketch edits, joint swaps and size

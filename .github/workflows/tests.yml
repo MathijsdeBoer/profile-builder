@@ -75,3 +75,7 @@ jobs:
         if: always()
         shell: bash
         run: $FREECADCMD tests/freecad_slot_alignment.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt
+      - name: Context tasks
+        if: always()
+        shell: bash
+        run: $FREECADCMD tests/freecad_context_tasks.py 2>&1 | tee log.txt && grep -q "^0 failure(s)" log.txt
