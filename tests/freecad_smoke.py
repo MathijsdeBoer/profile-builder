@@ -256,6 +256,136 @@ with tempfile.TemporaryDirectory() as temp_dir:
           "box frame: Edge9 reference survives save and reload")
     App.closeDocument(doc.Name)
 
+# ---- box generator: one side heavier, offsets, colliding rails, a failed skeleton -----
+
+from freecad.profile_builder import check as frame_check, skeleton as skeleton_module  # noqa: E402
+
+side_doc = App.newDocument("boxsides")
+doc = side_doc
+side_skeleton, side_members, _side_joints, _side_warnings = box_frame.make_box(
+    doc, width=600, depth=600, height=700, size_mode="Outside")
+for rail in side_members[:4]:  # Edge1-4: the bottom ring
+    rail.Rows = 2
+doc.recompute()
+check(all(abs(a - b) < 1e-6 for a, b in zip(box_extents(side_members), (600, 600, 700))),
+      f"outside box: 2040 bottom rails only keep the requested size ({box_extents(side_members)})")
+for post in side_members[8:10]:  # Edge9 and Edge10: the posts at y = 0
+    post.Series = "30-8"
+doc.recompute()
+check(all(abs(a - b) < 1e-6 for a, b in zip(box_extents(side_members), (600, 600, 700))),
+      f"outside box: 3030 front posts only keep the requested size ({box_extents(side_members)})")
+check(not frame_check.box_frames(doc), "box frame check: no size warning while the size holds")
+
+side_skeleton.SizeMode = "Inside clear"
+side_skeleton.Width = 400
+side_skeleton.Depth = 400
+side_skeleton.Height = 500
+doc.recompute()
+side_boxes = [member.Shape.BoundBox for member in side_members]
+clear_y = (min(side_boxes[i].YMin for i in (2, 6, 10, 11)) - max(side_boxes[i].YMax for i in (0, 4, 8, 9)))
+clear_z = min(box.ZMin for box in side_boxes[4:8]) - max(box.ZMax for box in side_boxes[:4])
+check(abs(clear_y - 400) < 1e-6 and abs(clear_z - 500) < 1e-6,
+      f"inside-clear box: 400 deep and 500 high clear with heavier front posts and bottom rails "
+      f"({clear_y:.3f}, {clear_z:.3f})")
+side_measured = skeleton_module.measured_size(side_skeleton)
+check(all(abs(a - b) < 1e-6 for a, b in zip(side_measured, (400, 400, 500))),
+      f"inside-clear box: measured clear size ({side_measured})")
+
+# A section offset (Align slots) moves a post outward; the skeleton cannot follow, so the check warns.
+side_skeleton.SizeMode = "Outside"
+side_skeleton.Width = 600
+side_skeleton.Depth = 600
+side_skeleton.Height = 700
+doc.recompute()
+feature.ensure_section_offset_properties(side_members[8])
+side_members[8].SectionOffsetX = -30  # local X is world X for the post at the origin
+doc.recompute()
+size_warnings = [f for f in frame_check.box_frames(doc) if f.severity == "Warning"]
+check(abs(box_extents(side_members)[0] - 630) < 1e-6 and len(size_warnings) == 1
+      and side_skeleton.Name in size_warnings[0].objects,
+      f"box frame check: a section offset that changes the outside size is reported "
+      f"({box_extents(side_members)}, {ascii(size_warnings)})")
+side_members[8].SectionOffsetX = 0
+doc.recompute()
+
+# Rails wider than the posts both ways would collide at all eight corners.
+objects_before = len(doc.Objects)
+try:
+    box_frame.make_box(doc, 600, 600, 700, "Outside", rail_cols=2, rail_rows=1)
+    collided = False
+except ValueError:
+    collided = True
+check(collided and len(doc.Objects) == objects_before,
+      "box frame: rails wider than the posts are refused before anything is created")
+
+# A skeleton that fails keeps its old lines: its profiles must not pass as up to date.
+side_skeleton.Width = 15  # expected traceback: "Outside dimensions must exceed the section sizes"
+doc.recompute()
+side_report = cutlist.build_report(doc)
+side_broken = frame_check.broken(doc)
+check(not side_skeleton.isValid() and all(feature.problem(member) for member in side_members)
+      and len(side_report.errors) >= 12 and len(side_broken) >= 12,
+      f"failed skeleton: its 12 profiles are reported ({len(side_report.errors)} errors, "
+      f"{len(side_broken)} broken)")
+App.closeDocument(side_doc.Name)
+
+# The task panel keeps the exact sizes it was filled with, and reads typed text in the unit shown.
+try:
+    import re  # noqa: E402
+    from PySide import QtWidgets  # noqa: E402
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from freecad.profile_builder import box_frame_ui  # noqa: E402
+    original_schema = App.Units.getSchema()
+    try:
+        for schema, schema_name in enumerate(App.Units.listSchemas()):
+            App.Units.setSchema(schema)
+            panel_doc = App.newDocument(f"boxpanel{schema}")
+            App.setActiveDocument(panel_doc.Name)
+            panel = box_frame_ui.BoxFrameTaskPanel()
+            wanted = (panel.defaults["width"], panel.defaults["depth"], panel.defaults["height"])
+            accepted = panel.apply()
+            got = (panel.skeleton.Width.Value, panel.skeleton.Depth.Value, panel.skeleton.Height.Value)
+            check(accepted and all(abs(a - b) < 1e-9 for a, b in zip(got, wanted)),
+                  f"box panel ({schema_name}): untouched sizes stay exact ({got}, {ascii(panel.info.text()[:80])})")
+            shown = panel.width.text()
+            number = re.match(r"[0-9.,]+", shown).group(0)
+            unit = shown[len(number):]
+            if not re.search(r"[0-9]", unit):  # the number the user sees, typed without its unit
+                panel.width.setText(number)
+                panel.apply()
+                typed = App.Units.Quantity(number.replace(",", ".") + unit).Value
+                check(abs(panel.skeleton.Width.Value - typed) < 1e-6,
+                      f"box panel ({schema_name}): a bare {ascii(number)} is read in the unit shown, "
+                      f"{ascii(unit.strip())} ({panel.skeleton.Width.Value:.4f} mm, wanted {typed:.4f})")
+            else:  # feet and inches with a fraction: 2' 3" + 1/2"
+                panel.width.setText("2' 3\" + 1/2\"")
+                accepted = panel.apply()
+                check(accepted and abs(panel.skeleton.Width.Value - 698.5) < 1e-6,
+                      f"box panel ({schema_name}): feet, inches and a fraction are read "
+                      f"({panel.skeleton.Width.Value:.4f} mm)")
+            panel._timer.stop()
+            panel_doc.abortTransaction()
+            App.closeDocument(panel_doc.Name)
+    finally:
+        App.Units.setSchema(original_schema)
+
+    panel_doc = App.newDocument("boxpanelwide")
+    App.setActiveDocument(panel_doc.Name)
+    panel = box_frame_ui.BoxFrameTaskPanel()
+    rails_before = [(rail.Series, rail.Columns, rail.Rows) for rail in panel.rails]
+    for combo, data in ((panel.post_series, "20-6"), (panel.post_size, "1x1"),
+                        (panel.rail_series, "20-6"), (panel.rail_size, "2x1")):
+        combo.setCurrentIndex(combo.findData(data))
+    accepted = panel.apply()
+    check(not accepted and "collide" in panel.info.text()
+          and [(rail.Series, rail.Columns, rail.Rows) for rail in panel.rails] == rails_before,
+          f"box panel: 2040 rails on side on 2020 posts are refused ({ascii(panel.info.text()[:80])})")
+    panel._timer.stop()
+    panel_doc.abortTransaction()
+    App.closeDocument(panel_doc.Name)
+except ImportError as e:
+    check(False, f"box panel test could not run: {e}")
+
 # ---- choosing which profiles run through: a 400 x 400 square of 2040 -----------
 
 square_doc = App.newDocument("square")

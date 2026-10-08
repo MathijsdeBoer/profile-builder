@@ -394,6 +394,11 @@ def problem(obj):
         except Exception:  # noqa: BLE001
             return "error"
     if obj.PathEdge:
+        # A failed path (a skeleton below its section sizes, a sketch that does not solve)
+        # keeps its old shape, so the edge is still found but the length is stale.
+        source = obj.PathEdge[0]
+        if source is not None and not source.isValid():
+            return f"its path {source.Label} has an error"
         try:
             path_edge(obj)
         except ValueError as e:
@@ -401,6 +406,9 @@ def problem(obj):
     for joint in (obj.StartJoint, obj.EndJoint):
         if joint is not None and not joint.isValid():
             return f"its joint {joint.Label} has an error"
+        for source in getattr(joint, "Sources", None) or ():
+            if source is not None and not source.isValid():
+                return f"its joint {joint.Label} follows {source.Label}, which has an error"
     if "Touched" in obj.State:
         return "not recomputed (recompute the document, or fix the object it depends on)"
     return None
