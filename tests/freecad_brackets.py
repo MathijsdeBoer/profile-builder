@@ -818,11 +818,167 @@ bb = shape.BoundBox
 check(abs(bb.YMin + 13) < 1e-3 and abs(bb.YMax - 13) < 1e-3 and abs(bb.ZMin - 390) < 1e-3
       and abs(bb.ZMax - 410) < 1e-3 and abs(bb.XMin + 10) < 1e-3 and abs(bb.XMax - 410) < 1e-3,
       f"end plates: lie on the outer faces, bar flush with the far face, stem on the rail ({bb})")
+
+plates_doc = doc
+
+
+def plate_fit(obj, profiles):
+    """fit_report for the plates of ``obj``: each touches exactly its two profiles, no overlaps."""
+    global br, LOCAL
+    br, LOCAL = obj, Part.getShape(obj.LinkedObject, "", transform=False)
+    return fit_report(profiles)
+
+
+def boxes(obj):
+    """Sorted (XMin, XMax, YMin, YMax, ZMin, ZMax) of each placed part of ``obj``, rounded."""
+    local = Part.getShape(obj.LinkedObject, "", transform=False)
+    found = []
+    for p in obj.PlacementList[:obj.Count]:
+        b = local.transformed(obj.Placement.multiply(p).toMatrix()).BoundBox
+        found.append(tuple(round(v, 3) + 0.0 for v in (b.XMin, b.XMax, b.YMin, b.YMax, b.ZMin, b.ZMax)))
+    return sorted(found)
+
+
+wrong, overlap, clash = plate_fit(pl, posts)
+check(not wrong and overlap < 1e-3 and clash < 1e-3,
+      f"end plates: each touches exactly its two profiles, no overlap ({wrong[:2]}, {overlap:.4f}, {clash:.4f})")
+plain_t = [App.Placement(p) for p in pl.PlacementList]
 pl.PlateOffset = 2.0
 doc.recompute()
 check(abs(Part.getShape(pl).BoundBox.XMin + 8) < 1e-3, "end plates: PlateOffset moves the bar's end")
 pl.PlateOffset = 0.0
 doc.recompute()
+
+# SlotOffset and SwapLegs are corner bracket settings the plate panel does not show: an object
+# switched from Corner to End plate keeps them, and they must not move the plates.
+pl.SlotOffset, pl.SwapLegs = 4.0, True
+doc.recompute()
+wrong, overlap, clash = plate_fit(pl, posts)
+check(all(same_placement(a, b) for a, b in zip(plain_t, pl.PlacementList)) and not wrong and overlap < 1e-3,
+      f"end plates: SlotOffset and SwapLegs leave them on the faces ({boxes(pl)[:1]}, {overlap:.1f} mm3)")
+pl.SlotOffset, pl.SwapLegs = 0.0, False
+doc.recompute()
+
+# The plate's two faces picked the other way round would stand every plate on its edge.
+try:
+    brackets.calibrate(list(reversed(plate_picks(plate_part))), "End plate")
+    check(False, "plate calibration: faces in the wrong order are refused")
+except ValueError as e:
+    check("on its edge" in str(e), f"plate calibration: faces in the wrong order are refused ({e})")
+# A T plate: the bar (60 across, 20 deep) and a 20 wide stem reaching 40 further.
+tee = doc.addObject("Part::Feature", "TeePlate")
+tee.Shape = Part.makeBox(20, 60, 3, V(0, -30, 0)).fuse(Part.makeBox(40, 20, 3, V(20, -10, 0))).removeSplitter()
+doc.recompute()
+
+
+def tee_face(normal, pick=max):
+    """Name of the face of the T plate with outward ``normal`` that lies furthest along it (or least with min)."""
+    found = [(f.CenterOfMass.dot(normal), f"Face{i + 1}") for i, f in enumerate(tee.Shape.Faces)
+             if (brackets._normal(f) - normal).Length < 1e-6]
+    return pick(found)[1]
+
+
+contact = (tee, tee_face(V(0, 0, -1)))
+_part, tee_frame, notes = brackets.calibrate([contact, (tee, tee_face(V(1, 0, 0)))], "End plate")
+check(not notes and (tee_frame.Base - V(0, 0, 0)).Length < 1e-6
+      and (tee_frame.Rotation.multVec(V(1, 0, 0)) - V(1, 0, 0)).Length < 1e-6,
+      f"T plate calibration: bar end at the origin, stem along +X ({tee_frame.Base}, {notes})")
+_part, _frame, notes = brackets.calibrate([contact, (tee, tee_face(V(-1, 0, 0)))], "End plate")
+check(any("outer end of the bar" in n for n in notes), f"T plate calibration: the bar's outer end is noted ({notes})")
+
+# Through a cross and a corner post with rails along X and Y, plates on a face where another rail ends
+# would run into it or lie on another rail's plate: those sides get none, and a note says why.
+for name, segs, count, word in (
+        ("plate_cross", [((0, 0, 0), (0, 0, 500)), ((0, 0, 250), (300, 0, 250)), ((0, 0, 250), (-300, 0, 250))],
+         0, "opposite faces"),
+        ("plate_tee3d", [((0, 0, 0), (0, 0, 500)), ((0, 0, 250), (300, 0, 250)), ((0, 0, 250), (0, 300, 250))],
+         2, "neighbouring faces")):
+    profs, made, part = frame_with(name, segs)
+    part.Shape = Part.makeBox(60, 20, 3, V(5, 7, 9))
+    doc.recompute()
+    obj = brackets.make_brackets(doc, part, made, plate_frame, Style="End plate")
+    doc.recompute()
+    wrong, overlap, clash = plate_fit(obj, profs)
+    check(len(made) == 1 and obj.Count == count and any(word in n for n in obj.Notes),
+          f"{name}: {count} plates, with a note ({obj.Count}, {obj.Notes})")
+    check(not wrong and overlap < 1e-3 and clash < 1e-3,
+          f"{name}: the plates touch their two profiles and overlap nothing ({wrong[:2]}, {overlap:.1f}, {clash:.1f})")
+check(boxes(obj) == [(-13.0, -10.0, -10.0, 50.0, 240.0, 260.0), (-10.0, 50.0, -13.0, -10.0, 240.0, 260.0)],
+      f"plate_tee3d: each rail's plate on the post's face away from the other rail ({boxes(obj)})")
+
+# Claims: an End plates object takes only the T-junctions it is given from an all-joints object, never a
+# corner it places nothing at. Two posts, a top rail (L corners) and a middle rail (T-junctions).
+profs, made, corner_part = frame_with("plate_claims", [
+    ((0, 0, 0), (0, 0, 500)), ((400, 0, 0), (400, 0, 500)), ((0, 0, 500), (400, 0, 500)),
+    ((0, 0, 250), (400, 0, 250))])
+plate = doc.addObject("Part::Feature", "Plate")
+plate.Shape = Part.makeBox(60, 20, 3, V(5, 7, 9))
+doc.recompute()
+tees = [j for j in made if list(j.PassingMembers)]
+ells = [j for j in made if j not in tees]
+everywhere = brackets.make_brackets(doc, corner_part, made, AllJoints=True, SkipClaimed=True)
+doc.recompute()
+at = {j.Label: sum(p.startswith(j.Label + ":") for p in everywhere.Positions) for j in made}
+check(len(tees) == 2 and len(ells) == 2 and everywhere.Count == 4 and all(at.values()),
+      f"claims: corner brackets at all 4 joints ({everywhere.Count}, {at})")
+left_l = [j for j in ells if j in (profs[0].StartJoint, profs[0].EndJoint)]
+left_t = [j for j in tees if profs[0].Name in j.PassingMembers]
+plates = brackets.make_brackets(doc, plate, left_l + left_t, plate_frame, Style="End plate")
+doc.recompute()
+check(len(left_l) == 1 and len(left_t) == 1 and plates.Count == 2
+      and everywhere.Count == 4 - at[left_t[0].Label] and left_l[0] in everywhere.Joints
+      and left_t[0] not in everywhere.Joints,
+      f"claims: plates given an L corner and a T take only the T ({everywhere.Count}, {plates.Count})")
+doc.removeObject(plates.Name)
+doc.recompute()
+
+# Unticking AllJoints keeps the list AllJoints filled, which claims nothing until it is edited.
+plates = brackets.make_brackets(doc, plate, made, plate_frame, Style="End plate", AllJoints=True, SkipClaimed=True)
+doc.recompute()
+check(everywhere.Count == 4 and plates.Count == 4 and plates.JointsComputed,
+      f"claims: two all-joints objects both place ({everywhere.Count}, {plates.Count})")
+plates.AllJoints = False
+doc.recompute()
+check(everywhere.Count == 4 and plates.Count == 4 and plates.JointsComputed and not everywhere.Notes,
+      f"claims: AllJoints unticked, the filled list claims nothing ({everywhere.Count}, {everywhere.Notes})")
+doc.UndoMode = 1
+doc.openTransaction("edit joints")
+plates.Joints = left_t
+doc.recompute()
+doc.commitTransaction()
+check(not plates.JointsComputed and everywhere.Count == 4 - at[left_t[0].Label] and plates.Count == 2,
+      f"claims: an edited list claims its joints ({everywhere.Count}, {plates.Count})")
+doc.undo()
+doc.recompute()
+check(plates.JointsComputed and len(plates.Joints) == 4 and everywhere.Count == 4,
+      f"claims: undoing the edit gives the filled list back, claiming nothing ({everywhere.Count})")
+
+# A document saved before Corners and JointsComputed existed: restoring adds them, the corner checklist
+# is filled when the panel opens, and the placements stay as they were.
+plates.AllJoints = True
+doc.recompute()
+for obj in (everywhere, plates):
+    for name in ("Corners", "CornerLabels", "JointsComputed"):
+        obj.removeProperty(name)
+saved = {o.Name: [App.Placement(p) for p in o.PlacementList] for o in (everywhere, plates)}
+counts = {o.Name: o.Count for o in (everywhere, plates)}
+path = os.path.join(tempfile.gettempdir(), "pb_old_brackets.FCStd")
+doc.saveAs(path)
+App.closeDocument(doc.Name)
+doc = App.openDocument(path)
+restored = [o for o in doc.Objects if brackets.is_brackets(o)]
+check(len(restored) == 2 and all(not o.Corners and o.JointsComputed == o.AllJoints for o in restored),
+      f"old document: Corners empty, JointsComputed from AllJoints ({[(len(o.Corners), o.JointsComputed) for o in restored]})")
+for obj in restored:
+    brackets.fill_corners(obj)
+check(all(len(o.Corners) == len(o.CornerLabels) == counts[o.Name] for o in restored),
+      f"old document: the corner checklist is filled ({[len(o.Corners) for o in restored]})")
+check(all(o.Count == counts[o.Name] and all(same_placement(a, b) for a, b in zip(saved[o.Name], o.PlacementList))
+          for o in restored), "old document: filling the corners leaves the placements")
+check(not [o.Name for o in doc.Objects if "Touched" in o.State] and not doc.mustExecute(),
+      "old document: nothing is left to recompute")
+App.closeDocument(doc.Name)
+doc = plates_doc
 
 pl.SkippedCorners = [pl.Corners[0]]
 doc.recompute()
@@ -842,6 +998,20 @@ for wide in ((2, 1), (1, 2)):
     if any("flush" in n for n in pl.Notes):
         break
 check(any("flush" in n for n in pl.Notes), f"plates: rail not flush with the posts is noted ({pl.Notes})")
+# A 2040 rail standing on edge: its side faces have two slots, one above the other.
+posts[2].Columns, posts[2].Rows = 1, 2
+doc.recompute()
+heights = sorted({(b[4], b[5]) for b in boxes(pl)})
+wrong, overlap, clash = plate_fit(pl, posts)
+check(pl.Count == 4 and heights == [(390.0, 410.0)] and not wrong and overlap < 1e-3,
+      f"2040 rail: one plate over the middle of each side face ({pl.Count}, {heights})")
+pl.PerSlot = True
+doc.recompute()
+heights = sorted({(b[4], b[5]) for b in boxes(pl)})
+wrong, overlap, clash = plate_fit(pl, posts)
+check(pl.Count == 8 and heights == [(380.0, 400.0), (400.0, 420.0)] and not wrong and overlap < 1e-3
+      and clash < 1e-3, f"2040 rail, PerSlot: a plate on each of its two slots ({pl.Count}, {heights}, {clash:.1f})")
+pl.PerSlot = False
 posts[2].Columns, posts[2].Rows = 1, 1
 doc.recompute()
 
@@ -996,6 +1166,35 @@ check((made.SourceFrame.Base - V(5, 17, 9)).Length < 1e-6,
       f"calibrate: an End plate object is calibrated with the plate faces ({made.SourceFrame})")
 check(set(brackets.fields(made)) < set(brackets.FIELDS) | {"PerSlot", "PlateOffset"}
       and "SlotOffset" not in brackets.fields(made), "end plates: their own property list")
+
+# Selecting a post for end plates gives only its T-junction, not the L corner at its top, so an
+# all-joints Brackets object keeps its bracket there.
+posts, post_joints, plate_part = frame_with("plate_select", [
+    ((0, 0, 0), (0, 0, 500)), ((400, 0, 0), (400, 0, 500)), ((0, 0, 500), (400, 0, 500)),
+    ((0, 0, 250), (400, 0, 250))])
+corner_part = doc.addObject("Part::Feature", "CornerBracket")
+corner_part.Shape = L
+plate_part.Shape = Part.makeBox(60, 20, 3, V(5, 7, 9))
+doc.recompute()
+App.setActiveDocument(doc.Name)
+everywhere = brackets.make_brackets(doc, corner_part, post_joints, AllJoints=True, SkipClaimed=True)
+doc.recompute()
+before = everywhere.Count
+shown.clear()
+select([Picked(plate_part, [s for _o, s in plate_picks(plate_part)]), Picked(posts[0])], [plate_part, posts[0]])
+brackets_ui.CreateEndPlates().Activated()
+made = shown[-1] if shown else None
+tee_of_post = [j for j in post_joints if posts[0].Name in j.PassingMembers]
+check(made is not None and [j.Name for j in made.Joints] == [j.Name for j in tee_of_post] and made.Count == 2
+      and everywhere.Count == before - 1 and posts[0].EndJoint in everywhere.Joints,
+      f"end plates command: a selected post gives its T-junction only ({made and [j.Label for j in made.Joints]}, "
+      f"{everywhere.Count} of {before})")
+shown.clear()
+messages.clear()
+select([Picked(plate_part, [s for _o, s in plate_picks(plate_part)]), Picked(posts[2])], [plate_part, posts[2]])
+brackets_ui.CreateEndPlates().Activated()
+check(not shown and messages and "T-junction" in messages[-1],
+      f"end plates command: a top rail with only L corners is refused ({messages[-1:]})")
 
 print("\n%d failure(s)" % len(failures))
 

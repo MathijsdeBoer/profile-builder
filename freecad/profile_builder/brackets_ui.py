@@ -71,8 +71,12 @@ def _whole_part():
     return None
 
 
-def _chosen_joints(doc):
-    """(joints, all): the selected joints and those of the selected profiles, or else every joint."""
+def _chosen_joints(doc, style="Corner"):
+    """(joints, all): the selected joints and those of the selected profiles, or else every joint.
+
+    End plates only go at T-junctions, so for them the other selected joints are left out: given
+    explicitly, they would be taken from an all-joints Brackets object that places brackets there.
+    """
     found = []
     for obj in Gui.Selection.getSelection():
         if joints.is_joint(obj):
@@ -80,8 +84,12 @@ def _chosen_joints(doc):
         elif feature.is_profile(obj):
             found += [j for j in (obj.StartJoint, obj.EndJoint) if j is not None]
             found += [j for j in doc.Objects if joints.is_joint(j) and obj.Name in j.PassingMembers]
+    if not found:
+        return brackets.all_joints(doc), True
     found = list(dict.fromkeys(found))
-    return (found, False) if found else (brackets.all_joints(doc), True)
+    if style == "End plate":
+        found = [j for j in found if joints.passing_of(j)]
+    return found, False
 
 
 def _targets():
@@ -105,6 +113,7 @@ def task_panel(obj):
 
         def __init__(self):
             super().__init__(obj, brackets.fields(obj), "Brackets", brackets.info)
+            brackets.fill_corners(obj)  # a document saved before the corner list existed
             self.corners = QtWidgets.QListWidget()
             self.corners.setToolTip(obj.getDocumentationOfProperty("SkippedCorners"))
             self.form.layout().insertRow(self.form.layout().rowCount() - 1,
@@ -182,7 +191,11 @@ class CreateBrackets:
         if part is None:
             _message(self.how_to)
             return
-        chosen, everywhere = _chosen_joints(doc)
+        chosen, everywhere = _chosen_joints(doc, self.style)
+        if not chosen and not everywhere:
+            _message("None of the selected joints and profiles is at a T-junction, where one profile ends on the "
+                     f"side of another that runs through, so there is nowhere to put end plates.\n\n{self.how_to}")
+            return
         if not chosen:
             _message("There are no joints yet. Join the profiles first (Joints...), then place the brackets.")
             return
