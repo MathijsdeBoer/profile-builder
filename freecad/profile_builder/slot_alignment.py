@@ -74,6 +74,11 @@ class PickedSlot:
     slot: int
 
 
+def _face_along(frame, face):
+    """The direction in which the slots of ``face`` sit side by side."""
+    return frame.y if face in ("Left", "Right") else frame.x
+
+
 def _slot_center(profile, frame, face, slot):
     """World position of the centre line of slot ``slot`` (1-based) on ``face``, on the profile axis plane."""
     if face in ("Left", "Right"):
@@ -97,16 +102,21 @@ def direct_align_slots(target_slot, reference_slot):
     """Slide the target profile along its section so its picked slot lines up with the reference slot.
 
     The slots are lined up across both profile axes (their cross product), the way two slots meet at
-    a butt joint. Parallel profiles are lined up across the face normal instead. The target keeps its
-    spin and its sketch edge; only its section offset changes.
+    a butt joint. Parallel (or nearly parallel) profiles are lined up across the target face's
+    normal instead. Picks whose slots cannot line up that way are refused: a turned profile, or a
+    face that points along the alignment direction. The target keeps its spin and its sketch edge;
+    only its section offset changes.
     """
     target, reference = target_slot.profile, reference_slot.profile
     target_frame = feature.member_frame(target)
     reference_frame = feature.member_frame(reference)
 
-    across = target_frame.z.cross(reference_frame.z)
-    if across.Length < 1e-6:
+    # Nearly parallel profiles (as joints count them) have no useful cross
+    # product: it can point from one profile to the other.
+    if abs(target_frame.z.dot(reference_frame.z)) > joints.PARALLEL:
         across = target_frame.z.cross(_face_normal(target_frame, target_slot.face))
+    else:
+        across = target_frame.z.cross(reference_frame.z)
     across.normalize()
 
     along_x = target_frame.x.dot(across)
@@ -115,11 +125,26 @@ def direct_align_slots(target_slot, reference_slot):
         dimension, coefficient = "x", along_x
     else:
         dimension, coefficient = "y", along_y
-    if abs(coefficient) < 0.95:
+    if abs(coefficient) < joints.PARALLEL:
         raise ValueError(translate(
             "ProfileBuilder", "{target} is turned (Spin) so the slots cannot be lined up by sliding it; "
             "set its Spin so its faces are square to {reference} first.")
             .format(target=target.Label, reference=reference.Label))
+    if max(abs(reference_frame.x.dot(across)), abs(reference_frame.y.dot(across))) < joints.PARALLEL:
+        raise ValueError(translate(
+            "ProfileBuilder", "{reference} is turned (Spin) so its slots cannot be lined up with {target}; "
+            "set its Spin so its faces are square to {target} first.")
+            .format(target=target.Label, reference=reference.Label))
+    # The slots of a face sit side by side along it. On a face that points
+    # along ``across`` they are all at the same distance, and sliding the
+    # target would never line them up.
+    for picked, frame, other in ((target_slot, target_frame, reference),
+                                 (reference_slot, reference_frame, target)):
+        if abs(_face_along(frame, picked.face).dot(across)) < joints.PARALLEL:
+            raise ValueError(translate(
+                "ProfileBuilder", "The slots on the {face} face of {profile} cannot be lined up with "
+                "{other}: that face points the way the slots would slide. Pick a slot on a face next to it.")
+                .format(face=picked.face, profile=picked.profile.Label, other=other.Label))
 
     gap = (_slot_center(reference, reference_frame, reference_slot.face, reference_slot.slot)
            - _slot_center(target, target_frame, target_slot.face, target_slot.slot)).dot(across)
@@ -559,11 +584,13 @@ def plan(profiles, slot_pairs=None):
             notes.append(str(error))
             continue
         if alignment is None:
-            text = ("{profile} cannot align any selected reference slot at the current butt joints"
-                    if slot_pairs is not None else
-                    "{profile} has no open, perpendicular slot faces to align with an unselected profile "
-                    "at a butt joint")
-            notes.append(translate("ProfileBuilder", text).format(profile=profile.Label))
+            if slot_pairs is not None:
+                text = translate("ProfileBuilder", "{profile} cannot align any selected reference slot at "
+                                 "the current butt joints")
+            else:
+                text = translate("ProfileBuilder", "{profile} has no open, perpendicular slot faces to align "
+                                 "with an unselected profile at a butt joint")
+            notes.append(text.format(profile=profile.Label))
             continue
         alignments.append(alignment)
         if candidates:

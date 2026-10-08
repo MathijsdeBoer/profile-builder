@@ -14,7 +14,7 @@ freecad.__path__.insert(0, os.path.join(ROOT, "freecad"))
 import FreeCAD as App  # noqa: E402
 import Part  # noqa: E402
 
-from freecad.profile_builder import brackets, check as frame_check, feature, joints, slot_alignment  # noqa: E402
+from freecad.profile_builder import brackets, check as frame_check, feature, joints, linear, slot_alignment  # noqa: E402
 
 _loaded = os.path.normcase(os.path.realpath(feature.__file__))
 if not _loaded.startswith(os.path.normcase(os.path.realpath(ROOT))):
@@ -261,19 +261,128 @@ for rail_spin in (0, 90):
           f"spin {rail_spin}: aligning again changes nothing")
     App.closeDocument(doc.Name)
 
-# Parallel profiles are lined up across the face normal.
-doc = App.newDocument("slot_alignment_parallel")
-lines = lines_object(doc, "Parallel", [((0, 0, 0), (0, 0, 300)), ((60, 7, 0), (60, 7, 300))])
+
+def align_picks(first, first_face, first_slot, second, second_face, second_slot):
+    """Run what the Align slots command does with two picked slot floors.
+
+    Returns ("refused", message), ("unchanged", None) or ("moved", changed).
+    """
+    target = slot_alignment.picked_slot(first, slot_face_name(first, first_face, first_slot))
+    reference = slot_alignment.picked_slot(second, slot_face_name(second, second_face, second_slot))
+    try:
+        alignments = slot_alignment.direct_align_slots(target, reference)
+    except ValueError as error:
+        return "refused", str(error)
+    changes = [alignment for alignment in alignments if alignment.changed]
+    if not changes:
+        return "unchanged", None
+    return "moved", slot_alignment.apply(first.Document, changes)
+
+
+def floor_centre(profile, face_name, slot_number):
+    return profile.Shape.Faces[int(slot_face_name(profile, face_name, slot_number)[4:]) - 1].CenterOfMass
+
+
+def box_of(profile):
+    box = profile.Shape.BoundBox
+    return (box.XMin, box.XMax, box.YMin, box.YMax, box.ZMin, box.ZMax)
+
+
+def same_box(first, second):
+    return all(abs(a - b) < 1e-6 for a, b in zip(first, second))
+
+
+# Picks whose slots cannot line up along the alignment direction are refused, every time.
+doc = App.newDocument("slot_alignment_refused")
+lines = lines_object(doc, "Loose", [((0, 0, 0), (0, 0, 300)), ((100, 13, 150), (300, 13, 150))])
 post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(lines, "Edge1"))
-neighbour = feature.make_profile("20-6", 1, 2, 100, doc, edge=(lines, "Edge2"))
+rail = feature.make_profile("20-6", 1, 2, 100, doc, edge=(lines, "Edge2"))
 doc.recompute()
-parallel_target = slot_alignment.PickedSlot(neighbour, "Right", 1)
-parallel_reference = slot_alignment.PickedSlot(post, "Left", 1)
+# The rail's Right face points along world Y, the direction the slots would slide.
+rail_box = box_of(rail)
+results = [align_picks(rail, "Right", 1, post, "Right", 1) for _ in range(3)]
+doc.recompute()
+check(all(result == "refused" for result, _message in results)
+      and "Right face of " + rail.Label in results[0][1],
+      f"a target face that points along the alignment direction is refused ({ascii(results[0])})")
+check(same_box(box_of(rail), rail_box) and feature.section_offset(rail).Length < 1e-9,
+      f"repeating a refused pick does not move the target ({box_of(rail)} vs {rail_box})")
+rail.Spin = 90
+doc.recompute()
+for face in ("Top", "Bottom"):
+    result, message = align_picks(rail, "Right", 1, post, face, 1)
+    check(result == "refused" and f"{face} face of {post.Label}" in message,
+          f"a reference on the post's {face} face is refused ({ascii(message)})")
+result, _changed = align_picks(rail, "Right", 1, post, "Right", 2)
+doc.recompute()
+check(result == "moved" and abs(floor_centre(rail, "Right", 1).y - floor_centre(post, "Right", 2).y) < 1e-6,
+      f"the same target lines up with a slot on the post face beside it ({result}, "
+      f"{floor_centre(rail, 'Right', 1).y:.6f}, {floor_centre(post, 'Right', 2).y:.6f})")
+rail_offset = feature.section_offset(rail)
+post.Spin = 33
+doc.recompute()
+result, message = align_picks(rail, "Right", 1, post, "Right", 1)
+check(result == "refused" and message.startswith(post.Label) and "Spin" in message,
+      f"a turned reference profile is refused ({ascii(message)})")
+check((feature.section_offset(rail) - rail_offset).Length < 1e-9, "a refused turned reference moves nothing")
+post.Spin = 0
+rail.Spin = 100  # within the old 0.95 limit, but its faces are not square to the post
+doc.recompute()
+result, message = align_picks(rail, "Right", 1, post, "Right", 1)
+check(result == "refused" and message.startswith(rail.Label),
+      f"a target turned by 10 degrees is refused ({ascii(message)})")
+App.closeDocument(doc.Name)
+
+# Parallel and nearly parallel profiles are lined up across the target face's normal.
+for top_y in (7.0, 7.05, 7.5):
+    doc = App.newDocument("slot_alignment_parallel")
+    lines = lines_object(doc, "Parallel", [((0, 0, 0), (0, 0, 300)), ((60, 7, 0), (60, top_y, 300))])
+    post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(lines, "Edge1"))
+    neighbour = feature.make_profile("20-6", 1, 2, 100, doc, edge=(lines, "Edge2"))
+    doc.recompute()
+    x_before = box_of(neighbour)[:2]
+    result, _changed = align_picks(neighbour, "Right", 1, post, "Left", 1)
+    doc.recompute()
+    target_floor = floor_centre(neighbour, "Right", 1)
+    reference_floor = floor_centre(post, "Left", 1)
+    offset = feature.section_offset(neighbour)
+    check(result == "moved" and abs(offset.x) < 1e-6 and abs(target_floor.y - reference_floor.y) < abs(top_y - 7) / 2 + 1e-3
+          and abs(reference_floor.y + 10) < 1e-6,
+          f"end y {top_y}: the neighbour's slot floor lines up with the post's across the face "
+          f"({result}, offset {offset.x:.4f} {offset.y:.4f}, floors y {target_floor.y:.4f} "
+          f"{reference_floor.y:.4f})")
+    check(abs(box_of(neighbour)[0] - x_before[0]) < 1e-6 and abs(box_of(neighbour)[1] - x_before[1]) < 1e-6
+          and neighbour.Shape.common(post.Shape).Volume < 1e-6,
+          f"end y {top_y}: the neighbour does not slide onto the post ({box_of(neighbour)[:2]})")
+    second, _changed = align_picks(neighbour, "Right", 1, post, "Left", 1)
+    check(second == "unchanged", f"end y {top_y}: aligning again changes nothing ({second})")
+    App.closeDocument(doc.Name)
+
+# A section offset that moves a profile into a carriage's envelope reaches the carriage, through
+# one carriage scan per recompute.
+doc = App.newDocument("slot_alignment_carriage")
+lines = lines_object(doc, "Carriage", [((0, 0, 0), (600, 0, 0)), ((300, -100, 60), (300, 100, 60))])
+rail = feature.make_profile("20-6", 1, 1, 100, doc, edge=(lines, "Edge1"))
+block = feature.make_profile("20-6", 1, 1, 100, doc, edge=(lines, "Edge2"))
+doc.recompute()
+car = linear.make_carriage(doc, rail, "Top", CarriageLength=60)
+doc.recompute()
+check(block.Name not in [o.Name for o in car.Neighbours], "the block starts clear of the carriage envelope")
+frame = feature.member_frame(block)
+dimension = "X" if abs(frame.x.z) > abs(frame.y.z) else "Y"
+feature.ensure_section_offset_properties(block)
+setattr(block, f"SectionOffset{dimension}", -35 / getattr(frame, dimension.lower()).z)  # bottom 50 -> 15
+moved = []
+original_member_moved = linear.member_moved
+linear.member_moved = lambda member: (moved.append(member.Name), original_member_moved(member))
 try:
-    plan = slot_alignment.direct_align_slots(parallel_target, parallel_reference)
-    check(len(plan) == 1 and plan[0].changed, "parallel profiles produce an alignment")
-except ValueError as error:
-    check(False, f"parallel profiles can be aligned ({error})")
+    doc.recompute()
+finally:
+    linear.member_moved = original_member_moved
+check(abs(block.Shape.BoundBox.ZMin - 15) < 1e-6 and block.Name in [o.Name for o in car.Neighbours],
+      f"the shifted block reaches the carriage ({block.Shape.BoundBox.ZMin:.3f}, "
+      f"{[o.Name for o in car.Neighbours]})")
+check(moved.count(block.Name) == 1, f"one carriage scan for the shifted block per recompute ({moved})")
 App.closeDocument(doc.Name)
 
 print(f"{len(failures)} failure(s)")
