@@ -948,6 +948,78 @@ doc.recompute()
 check(abs(panels.slot_room(sheet) - 2.6) < 1e-9 and panels.thermal_fit(sheet)[1] is None,
       f"slot room counts the unused depth ({panels.slot_room(sheet)})")
 
+# ---- undo and redo of an edit recomputed outside its transaction -----------------
+
+# The GUI commits a property edit and recomputes afterwards, so the neighbours' new lengths
+# are in no transaction. Undo then only restores the edited profile, and the joints and the
+# skeleton must still be marked for recompute, or the neighbours keep the undone sizes.
+doc = App.newDocument("undo")
+doc.UndoMode = 1
+lines = lines_object("UndoLines", [((0, 0, 0), (400, 0, 0)), ((0, 0, 0), (0, 0, 300))])
+urail = feature.make_profile("20-6", 2, 2, 100, doc, edge=(lines, "Edge1"))
+upost = feature.make_profile("20-6", 1, 3, 100, doc, edge=(lines, "Edge2"))
+doc.recompute()
+joints.create_joints(doc, (urail, upost), "Butt", "Longest")
+doc.recompute()
+before = round(upost.Length.Value, 3)
+doc.openTransaction("rows")
+urail.Rows = 3
+doc.commitTransaction()
+doc.recompute()
+edited = round(upost.Length.Value, 3)
+undos = doc.UndoCount
+doc.undo()
+doc.recompute()
+undone = (round(upost.Length.Value, 3), urail.Rows, doc.UndoCount, doc.RedoCount)
+check(before == 280 and edited == 270 and undone == (280, 2, undos - 1, 1),
+      f"undo of an edit recomputed later updates the butting post ({before}, {edited}, {undone})")
+# Bring everything up to date (touching records nothing), so redo is tested on its own.
+for o in doc.Objects:
+    o.touch()
+doc.recompute()
+synced = (round(upost.Length.Value, 3), doc.RedoCount)
+doc.redo()
+doc.recompute()
+redone = (round(upost.Length.Value, 3), urail.Rows, doc.UndoCount, doc.RedoCount)
+check(synced == (280, 1) and redone == (270, 3, undos, 0), f"and redo too ({synced}, {redone})")
+# Cancel in a task panel recomputes inside the transaction and then aborts it.
+doc.openTransaction("cancelled")
+urail.Rows = 4
+doc.recompute()
+doc.abortTransaction()
+doc.recompute()
+check((round(upost.Length.Value, 3), urail.Rows, doc.UndoCount, doc.RedoCount) == (270, 3, undos, 0),
+      f"cancel restores the post and adds no undo step ({upost.Length.Value}, {urail.Rows}, {doc.UndoCount})")
+App.closeDocument(doc.Name)
+
+doc = App.newDocument("undobox")
+doc.UndoMode = 1
+box_skeleton, box_members, _j, _w = box_frame.make_box(doc, width=600, depth=600, height=700, size_mode="Outside")
+doc.recompute()
+doc.openTransaction("posts")
+for post in box_members[8:]:
+    post.Series = "30-8"
+doc.commitTransaction()
+doc.recompute()
+edited = (box_skeleton.PostWidth.Value, box_extents(box_members))
+doc.undo()
+doc.recompute()
+undone = (box_skeleton.PostWidth.Value, box_extents(box_members), box_members[8].Series,
+          box_members[0].Length.Value)
+for o in doc.Objects:  # as above: redo is tested from an up-to-date frame
+    o.touch()
+doc.recompute()
+doc.redo()
+doc.recompute()
+redone = (box_skeleton.PostWidth.Value, box_extents(box_members), box_members[0].Length.Value)
+size = (600, 600, 700)
+check(edited[0] == 30 and all(abs(a - b) < 1e-6 for a, b in zip(edited[1], size))
+      and undone[0] == 20 and undone[2] == "20-6" and all(abs(a - b) < 1e-6 for a, b in zip(undone[1], size))
+      and redone[0] == 30 and all(abs(a - b) < 1e-6 for a, b in zip(redone[1], size))
+      and abs(undone[3] - redone[2] - 20) < 1e-6,
+      f"undo and redo of the post series update the skeleton ({edited}, {undone}, {redone})")
+App.closeDocument(doc.Name)
+
 # ---- ties between rails at equal angles to the axes ------------------------------
 
 import math  # noqa: E402
