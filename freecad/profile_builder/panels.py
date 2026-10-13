@@ -139,7 +139,10 @@ def _check_plane(plane_offset, fits):
     if not good:
         raise ValueError(f"The panel plane misses the slots of {missed.Label}, and no PlaneOffset "
                          "passes through a slot of every profile")
-    best = round(min(good, key=lambda p: (abs(p - plane_offset), p)), 6) + 0.0  # no "-0"
+    # Rounded first: the values carry float noise of about 1e-14, which would otherwise pick between
+    # two equally near values instead of the tie-break (the lower one).
+    best = min(good, key=lambda p: (round(abs(p - plane_offset), 6), round(p, 6)))
+    best = round(best, 6) + 0.0  # no "-0"
     raise ValueError(f"The panel plane misses the slots of {missed.Label}; try PlaneOffset {best:+g} mm")
 
 
@@ -162,12 +165,15 @@ class Layout:
     ``corners`` are 2D points (counter-clockwise) in the in-plane basis
     (e1, e2) from ``origin``; the sheet starts ``lift`` along ``n`` from the
     frame plane. ``inward`` holds, per member, the in-plane direction from the
-    member towards the opening.
+    member towards the opening. ``standoff`` holds, per member, how far an
+    on-face sheet lies off that member's face (0 for the outermost faces and
+    for In slot panels).
     """
 
-    def __init__(self, members, frames, n, origin, e1, e2, corners, lift, inward):
+    def __init__(self, members, frames, n, origin, e1, e2, corners, lift, inward, standoff=None):
         self.members, self.frames, self.n, self.origin = members, frames, n, origin
         self.e1, self.e2, self.corners, self.lift, self.inward = e1, e2, corners, lift, inward
+        self.standoff = standoff or [0.0] * len(members)
 
     def to2d(self, p):
         d = p - self.origin
@@ -202,10 +208,12 @@ def layout(obj):
     # Members of different sizes or with a section offset (Align slots) need not be centred on one plane,
     # but one plane must reach every section. Each section spans an interval along n; the reference plane
     # (PlaneOffset 0) is the middle of the part they all share, so it does not depend on the order of
-    # Profiles. When every centre lies on the first member's plane, as in all older documents, that is kept.
+    # Profiles. When every centre lies exactly on the first member's plane, as with one flat sketch and no
+    # section offsets (all older documents), that plane is kept bit for bit. Nearly coplanar centres take the
+    # band rule too: deciding that against the first member alone made the result depend on the order.
     centres = [(a - origin).dot(n) for a, _b in segments]
     heights = [0.0] * len(centres)  # of each section centre above the reference plane
-    if any(abs(c) > 0.5 for c in centres):
+    if any(abs(c) > 1e-6 for c in centres):
         spans = [(c - _half(f, -n) - 0.5, c + _half(f, n) + 0.5) for c, f in zip(centres, frames)]
         lo, hi = max(s[0] for s in spans), min(s[1] for s in spans)
         if lo > hi + 1e-6:
@@ -266,14 +274,31 @@ def layout(obj):
     if fabrication.signed_area(corners) < 0:
         corners.reverse()
 
+    standoff = None
     if obj.Mount == "In slot":
         lift = obj.PlaneOffset.Value - obj.Thickness.Value / 2
     else:
         sign = 1 if obj.Side == "Front" else -1
         # The outermost face on this side, measured from the reference plane: members need not be centred on it.
-        reach = max(h * sign + _half(f, n * sign) for f, h in zip(frames, heights))
+        faces = [h * sign + _half(f, n * sign) for f, h in zip(frames, heights)]
+        reach = max(faces)
         lift = sign * reach + obj.PlaneOffset.Value - (0 if sign > 0 else obj.Thickness.Value)
-    return Layout(members, frames, n, origin, e1, e2, corners, lift, inward)
+        standoff = [reach - face for face in faces]
+    return Layout(members, frames, n, origin, e1, e2, corners, lift, inward, standoff)
+
+
+# An on-face sheet further than this off a member's face does not rest on it: screws would pull it down.
+STANDOFF = 0.5
+
+
+def standoff_warnings(obj, lay=None):
+    """Warnings for the members an on-face sheet does not rest on, because other members stick out further."""
+    if obj.Mount != "On face":
+        return []
+    lay = lay or layout(obj)
+    return [f"{obj.Label}: the sheet lies {gap:.2f} mm off the face of {m.Label}, because other profiles stick out "
+            "further; line up the profile faces or put spacers under the sheet"
+            for m, gap in zip(lay.members, lay.standoff) if gap > STANDOFF]
 
 
 def panel_outline(obj):
@@ -297,7 +322,10 @@ def slot_lines(obj, lay):
     """
     sign = 1 if obj.Side == "Front" else -1
     lines, notes = [], []
-    for m, f, w in zip(lay.members, lay.frames, lay.inward):
+    for m, f, w, gap in zip(lay.members, lay.frames, lay.inward, lay.standoff):
+        if gap > STANDOFF:
+            notes.append(f"no holes along {m.Label}: the sheet does not rest on it ({gap:.2f} mm off its face)")
+            continue
         face = _face_towards(f, lay.n * sign)
         if getattr(m, f"Closed{face}"):
             notes.append(f"no holes along {m.Label}: the face under the sheet has no slot")
@@ -779,6 +807,7 @@ def fit_warnings(obj, d=None):
     found = [conflict] if conflict else [thermal_fit(obj)[1], cold_fit(obj)]
     if obj.Mount == "On face":
         found.append(hole_play(obj, d)[2])
+        found += standoff_warnings(obj)
     return [w for w in found if w]
 
 
@@ -837,6 +866,8 @@ def panel_info(obj):
             text += orange.format(f"Too loose{_loose_at(obj)}: " + html.escape(cold.split(": ", 1)[1]))
         text += grey.format("Slide the sheet in before fitting the last profile around it")
     else:
+        for floating in standoff_warnings(obj):
+            text += orange.format(html.escape(floating.split(": ", 1)[1]))
         need, play, warning = hole_play(obj, d)
         if warning:
             text += orange.format(html.escape(warning.split(": ", 1)[1]))
