@@ -1341,11 +1341,6 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../slot_alignment.py"/>
-        <source>Select the profile or profiles whose slots should be aligned.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <location filename="../../taskpanel.py"/>
         <source>Series</source>
         <translation type="unfinished"></translation>
@@ -1483,37 +1478,7 @@ Select a sketch and insert profiles on its edges first.</source>
     </message>
     <message>
         <location filename="../../slot_alignment.py"/>
-        <source>{profile} cannot align any selected reference slot at the current butt joints</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../slot_alignment.py"/>
-        <source>{profile} does not follow a sketch edge, so its slots cannot be aligned at joints</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../slot_alignment.py"/>
-        <source>{profile} has no open, perpendicular slot faces to align with an unselected profile at a butt joint</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../slot_alignment.py"/>
-        <source>{profile} has no selected reference slot at an applicable butt joint</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../slot_alignment.py"/>
         <source>{profile} has no slot {slot} on its {face} face</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../slot_alignment.py"/>
-        <source>{profile}: only {matched} of {selected} selected reference slots can be lined up</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../slot_alignment.py"/>
-        <source>{profile}: slots align at {matched} of {eligible} applicable butt joints</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

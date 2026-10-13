@@ -37,12 +37,17 @@ Added:
   offset from Align slots), as long as one plane reaches every profile. In slot also needs that plane to
   pass through one of each profile's slots. PlaneOffset is measured from the middle of the part all
   sections share, so the order of the profiles does not matter. An On face sheet lies on the outermost
-  face of all the profiles, and a missed slot suggests a PlaneOffset that suits every profile.
+  face of all the profiles, and a missed slot suggests a PlaneOffset that suits every profile. Profiles
+  that are nearly, but not exactly, in one plane are handled the same way, so their order does not
+  matter either. An On face sheet more than 0.5 mm off a profile's face gives a fit warning for that
+  profile (also in Check frame), and no holes are drilled along it.
 
 Fixed:
 - Deleting a profile refreshes its joints, including a manual through-profile choice.
 - A profile whose path object, or one of whose joint sources, has an error is listed in the cut list's
   error block, instead of keeping its old length.
+- Undo and redo of a profile edit update the butting profiles and the box-frame skeleton, also when the
+  edit was recomputed after its transaction had been committed.
 
 ## 0.2.0 (2026-09-30)
 

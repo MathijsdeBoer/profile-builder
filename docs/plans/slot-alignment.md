@@ -31,8 +31,7 @@ wide face. Rotating the post may orient the right face but cannot remove the hal
   carriage obstacles, panels, brackets and profile geometry use the shifted section.
 - Applying the result is one undoable document transaction.
 - The older joint-based solver (`slot_alignment.plan()`, which searched spins and offsets that match as many slots
-  as possible at butt joints and preferred an inward shift on ties) is still in the module, but the command does not
-  use it; only `tests/freecad_slot_alignment.py` calls it.
+  as possible at butt joints and preferred an inward shift on ties) has been removed; the command never used it.
 
 ## Scope
 
