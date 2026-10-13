@@ -593,6 +593,85 @@ check(all(s == ((28.5, 31.5), 0.0) for s in spans),
       f"a sheet in the posts' outer slot is accepted with a post first or a rail first ({spans})")
 App.closeDocument(doc.Name)
 
+# Nearly coplanar members (section offsets under 0.5 mm) must not depend on the order of Profiles either:
+# the shortcut that keeps the first member's plane only applies when every centre lies exactly on it.
+doc = App.newDocument("pbnear")
+near = ring("Ring", [(1, 1)] * 4)
+for rail, offset in zip(near, (0, 0.3, -0.3, 0)):
+    feature.ensure_section_offset_properties(rail)
+    rail.SectionOffsetY = offset
+doc.recompute()
+near_panel = panels.make_panel(doc, near, Mount="On face", Thickness=3)
+doc.recompute()
+for side, expected in (("Front", (10.3, 13.3)), ("Back", (-13.3, -10.3))):
+    spans = [sheet_span(near_panel, order, "Z", Side=side) for order in rotations(near)]
+    check(all(s == (expected, 0.0) for s in spans),
+          f"an On face {side} sheet on rails offset by 0, +0.3, -0.3 and 0 mm lies on the outermost rail, "
+          f"whatever the order ({spans})")
+near_slot = panels.make_panel(doc, near, Mount="In slot", Thickness=3)
+for rail, offset in zip(near, (0.2, 0, 0.4, 0.2)):
+    rail.SectionOffsetY = offset
+doc.recompute()
+spans = [sheet_span(near_slot, order, "Z") for order in rotations(near)]
+check(all(s == ((-1.3, 1.7), 0.0) for s in spans),
+      f"an In slot sheet on rails offset by 0.2, 0, 0.4 and 0.2 mm lies in the middle of their shared band, "
+      f"whatever the order ({spans})")
+for rail, offset in zip(near, (0, 0.3, -0.3, 0)):
+    rail.SectionOffsetY = offset
+doc.recompute()
+# 0.3 mm off a rail's face is within what a screw pulls in; 0.6 mm is not.
+for side, lowest in (("Front", near[2]), ("Back", near[1])):
+    sheet_span(near_panel, near, "Z", Side=side)
+    found = [w for w in panels.fit_warnings(near_panel) if "off the face of" in w]
+    check(len(found) == 1 and f"lies 0.60 mm off the face of {lowest.Label}," in found[0],
+          f"an On face {side} sheet warns only about the rail 0.6 mm below it, not those 0.3 mm below ({found})")
+App.closeDocument(doc.Name)
+
+# An On face sheet resting on one raised rail floats above the others: that is a warning, and no holes are
+# drilled along the slots of rails the sheet does not rest on.
+doc = App.newDocument("pbfloat")
+rails = ring("Ring", [(1, 1)] * 4)
+raised = rails[2]  # along Y = 300
+feature.ensure_section_offset_properties(raised)
+raised.SectionOffsetY = 10
+doc.recompute()
+float_panel = panels.make_panel(doc, rails, Mount="On face", Thickness=3, HoleDiameter=5, HoleSpacing=150,
+                                EdgeDistance=8, CornerKeepout=25)
+doc.recompute()
+found = [w for w in panels.fit_warnings(float_panel) if "off the face of" in w]
+others = sorted(r.Label for r in rails if r is not raised)
+check(len(found) == 3 and all(any(f"lies 10.00 mm off the face of {label}," in w for w in found) for label in others),
+      f"an On face sheet on a rail raised by 10 mm warns about the three other rails ({found})")
+holes = world_holes(float_panel)
+check(float_panel.HoleCount == len(holes) > 0 and all(abs(h.y - 300) < 1e-6 for h in holes),
+      f"holes are only drilled along the raised rail ({float_panel.HoleCount}, "
+      f"{sorted({round(h.y, 3) for h in holes})})")
+d = panels.drawing(float_panel)
+check(sum("the sheet does not rest on it (10.00 mm off its face)" in n for n in d.notes) == 3,
+      f"the drawing says why the other rails get no holes ({d.notes})")
+from freecad.profile_builder import check as frame_check  # noqa: E402
+findings = [f for f in frame_check.panel_fit(doc) if f.severity == "Warning" and "off the face of" in f.text]
+check(len(findings) == 3, f"the frame check lists the three warnings ({[f.text for f in findings]})")
+check("off the face of" in panels.panel_info(float_panel), "and so does the panel dialog")
+float_panel.Side = "Back"
+doc.recompute()
+found = [w for w in panels.fit_warnings(float_panel) if "off the face of" in w]
+check(len(found) == 1 and f"lies 10.00 mm off the face of {raised.Label}," in found[0],
+      f"on the back the raised rail is the one the sheet does not rest on ({found})")
+check(float_panel.HoleCount > 0 and all(abs(h.y - 300) > 1 for h in world_holes(float_panel)),
+      "and it is the one without holes")
+App.closeDocument(doc.Name)
+
+# The suggested PlaneOffset breaks ties with the lower value, not with float noise: a ring of 2x4 profiles
+# has slots at -10 and +10 mm, equally far from PlaneOffset 0.
+doc = App.newDocument("pbtie")
+wide = ring("Ring", [(2, 4)] * 4)
+tie_panel = panels.make_panel(doc, wide, Mount="In slot", Thickness=3)
+messages = {sheet_span(tie_panel, order, "Z", PlaneOffset=0) for order in rotations(wide)}
+check(all(isinstance(m, str) and "try PlaneOffset -10 mm" in m for m in messages),
+      f"the suggestion between -10 and +10 mm is the lower one ({messages})")
+App.closeDocument(doc.Name)
+
 # Older documents: panels open unchanged.
 for fixture in ("legacy_8733122.FCStd", "legacy_ead3f7d.FCStd"):
     old = App.openDocument(os.path.join(ROOT, "tests", "fixtures", fixture))
