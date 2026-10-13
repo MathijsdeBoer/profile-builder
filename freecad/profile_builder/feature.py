@@ -294,11 +294,6 @@ class Profile:
         length = obj.Length.Value
         placement = obj.Placement
         section_shift = section_offset(obj)
-        offset_properties = ("SectionOffsetX" in obj.PropertiesList or "SectionOffsetY" in obj.PropertiesList)
-        offset_state = (offset_properties, section_shift.x, section_shift.y)
-        previous_offset_state = getattr(self, "_last_section_offset_state", None)
-        offset_changed = (offset_properties and (previous_offset_state is None or previous_offset_state != offset_state)
-                          or previous_offset_state is not None and previous_offset_state[0] and not offset_properties)
         # A miter written by a joint that has since been removed is stale: go
         # back to a square cut instead of keeping the old angle.
         for end in ("Start", "End"):
@@ -356,11 +351,7 @@ class Profile:
         obj.OverallLength = solid.BoundBox.ZLength
 
         obj.Shape = solid
-        obj.Placement = placement
-        self._last_section_offset_state = offset_state
-        if offset_changed:
-            from .linear import member_moved
-            member_moved(obj)
+        obj.Placement = placement  # onChanged then lets carriages check the new shape
 
     def dumps(self):
         return None
