@@ -865,6 +865,24 @@ try:
     check(False, "plate calibration: faces in the wrong order are refused")
 except ValueError as e:
     check("on its edge" in str(e), f"plate calibration: faces in the wrong order are refused ({e})")
+# A supplier's STEP with the bolt and T-nut: the part reaches 25 deep across the 20 wide plate, which is
+# still picked the right way round.
+bolted = doc.addObject("Part::Feature", "BoltedPlate")
+bolted.Shape = Part.makeCompound([Part.makeBox(60, 20, 3, V(5, 7, 9)),
+                                  Part.makeCylinder(2.5, 22, V(35, 17, -10)),
+                                  Part.makeCylinder(4, 3, V(35, 17, 12)),
+                                  Part.makeBox(10, 6, 4, V(30, 14, -10))])
+doc.recompute()
+bolted_picks = [(bolted, f"Face{i + 1}") for want in ((V(0, 0, -1), V(35, 17, 9)), (V(1, 0, 0), V(65, 17, 10.5)))
+                for i, f in enumerate(bolted.Shape.Faces)
+                if brackets._normal(f) is not None and (brackets._normal(f) - want[0]).Length < 1e-6
+                and (f.CenterOfMass - want[1]).Length < 1e-6]
+try:
+    bolted_frame = brackets.calibrate(bolted_picks, "End plate")[1]
+    check(len(bolted_picks) == 2 and same_placement(bolted_frame, plate_frame),
+          f"plate calibration: a plate with its bolt and T-nut gives the plate's frame ({bolted_frame})")
+except ValueError as e:
+    check(False, f"plate calibration: a plate with its bolt and T-nut gives the plate's frame ({e})")
 # A T plate: the bar (60 across, 20 deep) and a 20 wide stem reaching 40 further.
 tee = doc.addObject("Part::Feature", "TeePlate")
 tee.Shape = Part.makeBox(20, 60, 3, V(0, -30, 0)).fuse(Part.makeBox(40, 20, 3, V(20, -10, 0))).removeSplitter()
@@ -952,6 +970,20 @@ doc.undo()
 doc.recompute()
 check(plates.JointsComputed and len(plates.Joints) == 4 and everywhere.Count == 4,
       f"claims: undoing the edit gives the filled list back, claiming nothing ({everywhere.Count})")
+# Deleting a joint drops it from the filled list too; that is no edit, so the list still claims nothing.
+gone = ells[0].Label
+doc.openTransaction("delete joint")
+doc.removeObject(ells[0].Name)
+doc.recompute()
+doc.commitTransaction()
+placed_at = {p.split(":")[0] for p in everywhere.Positions}
+check(plates.JointsComputed and len(plates.Joints) == 3 and len(everywhere.Joints) == 3
+      and placed_at == {j.Label for j in made} - {gone} and not everywhere.Notes,
+      f"claims: deleting a joint leaves the filled list claiming nothing ({sorted(placed_at)}, {everywhere.Notes})")
+doc.undo()
+doc.recompute()
+check(plates.JointsComputed and len(plates.Joints) == 4 and everywhere.Count == 4,
+      f"claims: undoing the delete gives the joint back ({len(plates.Joints)}, {everywhere.Count})")
 
 # A document saved before Corners and JointsComputed existed: restoring adds them, the corner checklist
 # is filled when the panel opens, and the placements stay as they were.

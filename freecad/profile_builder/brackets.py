@@ -429,6 +429,21 @@ def _claims(obj, joint):
     return getattr(obj, "Style", "Corner") != "End plate" or bool(joints.passing_of(joint))
 
 
+def _edited(obj, before):
+    """Whether the Joints of ``obj``, which were the names ``before``, changed by more than FreeCAD
+    dropping joints that are being deleted. Unknown ``before`` counts as an edit."""
+    if before is None:
+        return True
+    now = _names(obj.Joints)
+    if not set(now) <= set(before):
+        return True
+    for name in set(before) - set(now):
+        joint = obj.Document.getObject(name)
+        if joint is not None and not getattr(joint, "Removing", False):
+            return True
+    return False
+
+
 def claimed_joints(obj):
     """Names of the joints that other Brackets objects with their own joint choice place brackets at.
 
@@ -621,12 +636,17 @@ class Brackets:
             self._restoring = False
         obj.setEditorMode("Joints", 1 if obj.AllJoints else 0)
 
+    def onBeforeChange(self, obj, prop):
+        if prop == "Joints":
+            self._joints_before = _names(obj.Joints)  # transient: dumps() saves nothing
+
     def onChanged(self, obj, prop):
         if prop == "AllJoints" and "Joints" in obj.PropertiesList:
             obj.setEditorMode("Joints", 1 if obj.AllJoints else 0)  # only the view changes
         # Joints set by hand (not by execute for AllJoints) is a choice again, and claims its joints.
         if (prop == "Joints" and not getattr(self, "_filling", False) and not getattr(self, "_restoring", False)
-                and not feature.replaying(obj) and getattr(obj, "JointsComputed", False)):
+                and not feature.replaying(obj) and getattr(obj, "JointsComputed", False)
+                and _edited(obj, getattr(self, "_joints_before", None))):
             obj.JointsComputed = False
 
     def mustExecute(self, obj):
@@ -820,6 +840,12 @@ def plate_frame(face_contact, face_end, part=None):
     if abs(nc.dot(ne)) > SQUARE:
         raise ValueError("The two faces must be square to each other: the face that lies on the profiles, and "
                          "the face at the end of the plate's stem")
+    # The faces picked the other way round give a frame across the plate's thickness: plates on edge.
+    # Compared on the picked faces, not the part's extent, which bolts and T-nuts in a supplier's STEP add to.
+    if face_contact.Area <= face_end.Area:
+        raise ValueError("The plate would stand on its edge: the first face is smaller than the second. Pick the "
+                         "faces in this order: first the flat face that lies on the profiles, then the face at "
+                         "the end of its stem")
     z = nc * -1
     frame = _placement(face_contact.CenterOfMass, ne, z.cross(ne))
     shape = part if part is not None and not part.isNull() else Part.Compound([face_contact, face_end])
@@ -832,11 +858,6 @@ def plate_frame(face_contact, face_end, part=None):
                              "profiles")
         if bb.ZMin < -0.5:
             notes.append("part of the plate lies below the face picked as the one on the profiles; check the pick")
-        # The faces picked the other way round give a frame across the plate's thickness: plates on edge.
-        if bb.ZLength >= min(bb.XLength, bb.YLength):
-            raise ValueError("The plate would stand on its edge: it is thicker than it is long or wide that way. "
-                             "Pick the faces in this order: first the flat face that lies on the profiles, then "
-                             "the face at the end of its stem")
         # A T plate's bar is wider than its stem: the face at its outer end is no stem end.
         if _width_near(local, bb, bb.XMax) > _width_near(local, bb, bb.XMin) + 0.5:
             notes.append("the plate is wider at the second face than at its other end, so that face looks like "
