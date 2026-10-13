@@ -5,7 +5,7 @@ import math
 
 import FreeCAD as App
 
-from . import brackets, feature, joints
+from . import brackets, check, feature, joints
 
 translate = App.Qt.translate
 
@@ -103,8 +103,9 @@ def direct_align_slots(target_slot, reference_slot):
 
     The slots are lined up across both profile axes (their cross product), the way two slots meet at
     a butt joint. Parallel (or nearly parallel) profiles are lined up across the target face's
-    normal instead. Picks whose slots cannot line up that way are refused: a turned profile, or a
-    face that points along the alignment direction. The target keeps its spin and its sketch edge;
+    normal instead. Picks whose slots cannot line up that way are refused: a turned profile, a face
+    that points along the alignment direction, or a slide that would push the target into the
+    reference. The target keeps its spin and its sketch edge;
     only its section offset changes.
     """
     target, reference = target_slot.profile, reference_slot.profile
@@ -148,11 +149,32 @@ def direct_align_slots(target_slot, reference_slot):
 
     gap = (_slot_center(reference, reference_frame, reference_slot.face, reference_slot.slot)
            - _slot_center(target, target_frame, target_slot.face, target_slot.slot)).dot(across)
+    shift = (target_frame.x if dimension == "x" else target_frame.y) * (gap / coefficient)
+    if shift.Length > 1e-7 and _pushes_into(target, reference, shift):
+        raise ValueError(translate(
+            "ProfileBuilder", "Lining up these slots would push {target} into {reference}: {reference} sits "
+            "beside it in the direction the slots would slide.")
+            .format(target=target.Label, reference=reference.Label))
     current = feature.section_offset(target)
     offset_x = current.x + (gap / coefficient if dimension == "x" else 0.0)
     offset_y = current.y + (gap / coefficient if dimension == "y" else 0.0)
     spin = target.Spin.Value
     return [Alignment(target, spin, offset_x, offset_y, 1, 0, 0, spin, current.x, current.y)]
+
+
+def _pushes_into(target, reference, shift):
+    """Whether moving ``target`` by ``shift`` makes it overlap ``reference`` more than it does now.
+
+    Profiles side by side along the slide direction (parallel ones picked on
+    faces that look the same way, or skewed ones) would end up inside each
+    other. Overlap that is already there, at an unjoined corner, is left alone.
+    """
+    target_box, reference_box = check._envelope(target), check._envelope(reference)
+    moved = target_box.translated(shift)
+    if not moved.BoundBox.intersect(reference_box.BoundBox):
+        return False
+    before = target_box.common(reference_box).Volume
+    return moved.common(reference_box).Volume > before + check.CLASH_VOLUME
 
 
 def _angle_delta(first, second):

@@ -1,5 +1,6 @@
 """Test slot alignment on adjoining extrusion profiles with FreeCAD's console."""
 
+import math
 import os
 import sys
 import tempfile
@@ -341,6 +342,15 @@ for top_y in (7.0, 7.05, 7.5):
     neighbour = feature.make_profile("20-6", 1, 2, 100, doc, edge=(lines, "Edge2"))
     doc.recompute()
     x_before = box_of(neighbour)[:2]
+    # Faces that look the same way slide the neighbour towards the post, into it.
+    box_before = box_of(neighbour)
+    for target_face in ("Top", "Bottom"):
+        result, message = align_picks(neighbour, target_face, 1, post, "Top", 1)
+        doc.recompute()
+        check(result == "refused" and "into " + post.Label in message and same_box(box_of(neighbour), box_before)
+              and feature.section_offset(neighbour).Length < 1e-9,
+              f"end y {top_y}: {target_face}/Top would push the neighbour into the post and is refused "
+              f"({result}, {ascii(message)}, {box_of(neighbour)[:2]})")
     result, _changed = align_picks(neighbour, "Right", 1, post, "Left", 1)
     doc.recompute()
     target_floor = floor_centre(neighbour, "Right", 1)
@@ -357,6 +367,36 @@ for top_y in (7.0, 7.05, 7.5):
     second, _changed = align_picks(neighbour, "Right", 1, post, "Left", 1)
     check(second == "unchanged", f"end y {top_y}: aligning again changes nothing ({second})")
     App.closeDocument(doc.Name)
+
+# Profiles side by side but turned past the joints' parallel limit (5 degrees) slide along the gap
+# between them, so no pick may push one into the other.
+doc = App.newDocument("slot_alignment_skewed")
+lines = lines_object(doc, "Skewed", [((0, 0, 0), (0, 0, 300)), ((60, 7, 0), (60, 7 + 300 * math.tan(math.radians(5)), 300))])
+post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(lines, "Edge1"))
+neighbour = feature.make_profile("20-6", 1, 2, 100, doc, edge=(lines, "Edge2"))
+doc.recompute()
+box_before = box_of(neighbour)
+for target_face, reference_face in (("Top", "Top"), ("Bottom", "Top"), ("Right", "Left")):
+    result, message = align_picks(neighbour, target_face, 1, post, reference_face, 1)
+    doc.recompute()
+    check(result == "refused" and same_box(box_of(neighbour), box_before)
+          and neighbour.Shape.common(post.Shape).Volume < 1e-6,
+          f"skewed by 5 degrees: {target_face}/{reference_face} is refused and moves nothing "
+          f"({result}, {ascii(message)}, {box_of(neighbour)[:2]})")
+App.closeDocument(doc.Name)
+
+# Staggered parallel posts whose same-facing slots line up without touching are still aligned.
+doc = App.newDocument("slot_alignment_staggered")
+lines = lines_object(doc, "Staggered", [((0, 0, 0), (0, 0, 300)), ((60, 50, 0), (60, 50, 300))])
+post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(lines, "Edge1"))
+neighbour = feature.make_profile("20-6", 1, 2, 100, doc, edge=(lines, "Edge2"))
+doc.recompute()
+result, _changed = align_picks(neighbour, "Top", 1, post, "Top", 1)
+doc.recompute()
+gap = floor_centre(neighbour, "Top", 1).x - floor_centre(post, "Top", 1).x
+check(result == "moved" and abs(gap) < 1e-6 and neighbour.Shape.common(post.Shape).Volume < 1e-6,
+      f"staggered parallel posts line up their same-facing slots ({result}, gap {gap:.6f})")
+App.closeDocument(doc.Name)
 
 # A section offset that moves a profile into a carriage's envelope reaches the carriage, through
 # one carriage scan per recompute.
