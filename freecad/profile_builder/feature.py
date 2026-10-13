@@ -266,14 +266,17 @@ class Profile:
         obj.setEditorMode("MiterEnd", 1 if obj.EndJoint else 0)
 
     def onChanged(self, obj, prop):
-        # Undo and Cancel write old values back; reacting to them (resetting the
-        # dimensions, touching joints) would change what they restore.
-        if replaying(obj) or getattr(self, "_restoring", False):
+        if "Restore" in obj.State or getattr(self, "_restoring", False):
             return
-        if prop in ("Series", "Weight") and "ChamberWall" in obj.PropertiesList:
-            apply_series_defaults(obj)
         if prop in ("PathEdge", "StartJoint", "EndJoint"):
-            self._update_editor_modes(obj)
+            self._update_editor_modes(obj)  # only the editor, so also while undoing
+        # Undo and Cancel write old values back; reacting to them (resetting the
+        # dimensions) would change what they restore.
+        if not replaying(obj) and prop in ("Series", "Weight") and "ChamberWall" in obj.PropertiesList:
+            apply_series_defaults(obj)
+        # Marking dependants for recompute writes no property, so it also runs
+        # while undoing: a neighbour recomputed outside the undone transaction
+        # has no old value to restore, and would otherwise stay stale.
         # A new label only changes what the joint shows in its Through list.
         if prop in SECTION_PROPS or prop == "Label":
             from . import joints
@@ -294,11 +297,6 @@ class Profile:
         length = obj.Length.Value
         placement = obj.Placement
         section_shift = section_offset(obj)
-        offset_properties = ("SectionOffsetX" in obj.PropertiesList or "SectionOffsetY" in obj.PropertiesList)
-        offset_state = (offset_properties, section_shift.x, section_shift.y)
-        previous_offset_state = getattr(self, "_last_section_offset_state", None)
-        offset_changed = (offset_properties and (previous_offset_state is None or previous_offset_state != offset_state)
-                          or previous_offset_state is not None and previous_offset_state[0] and not offset_properties)
         # A miter written by a joint that has since been removed is stale: go
         # back to a square cut instead of keeping the old angle.
         for end in ("Start", "End"):
@@ -356,11 +354,7 @@ class Profile:
         obj.OverallLength = solid.BoundBox.ZLength
 
         obj.Shape = solid
-        obj.Placement = placement
-        self._last_section_offset_state = offset_state
-        if offset_changed:
-            from .linear import member_moved
-            member_moved(obj)
+        obj.Placement = placement  # onChanged then lets carriages check the new shape
 
     def dumps(self):
         return None
@@ -394,6 +388,11 @@ def problem(obj):
         except Exception:  # noqa: BLE001
             return "error"
     if obj.PathEdge:
+        # A failed path (a skeleton below its section sizes, a sketch that does not solve)
+        # keeps its old shape, so the edge is still found but the length is stale.
+        source = obj.PathEdge[0]
+        if source is not None and not source.isValid():
+            return f"its path {source.Label} has an error"
         try:
             path_edge(obj)
         except ValueError as e:
@@ -401,6 +400,9 @@ def problem(obj):
     for joint in (obj.StartJoint, obj.EndJoint):
         if joint is not None and not joint.isValid():
             return f"its joint {joint.Label} has an error"
+        for source in getattr(joint, "Sources", None) or ():
+            if source is not None and not source.isValid():
+                return f"its joint {joint.Label} follows {source.Label}, which has an error"
     if "Touched" in obj.State:
         return "not recomputed (recompute the document, or fix the object it depends on)"
     return None

@@ -458,7 +458,39 @@ App.closeDocument(mdoc.Name)
 App.closeDocument(rdoc.Name)
 
 # Members need not be centred on one plane: a section offset (Align slots) or a different section size moves
-# a centre line, as long as the panel plane still reaches the member and hits one of its slots.
+# a centre line, as long as one plane reaches every member. The result must not depend on the order of Profiles.
+def rotations(members):
+    return [members[i:] + members[:i] for i in range(len(members))]
+
+
+def sheet_span(panel, members, axis, **props):
+    """(the sheet's range along a world axis, its largest overlap with a member) for this order, or the error."""
+    panel.Profiles = members
+    for name, value in props.items():
+        setattr(panel, name, value)
+    try:
+        panels.layout(panel)
+    except ValueError as error:
+        return str(error)
+    panel.Document.recompute()
+    bb = panel.Shape.BoundBox
+    overlap = max(panel.Shape.common(m.Shape).Volume for m in members)
+    return (round(getattr(bb, axis + "Min"), 3), round(getattr(bb, axis + "Max"), 3)), round(overlap, 1)
+
+
+def ring(name, sizes, anchor="Center", join=True):
+    lines = lines_object(name, [((0, 0, 0), (400, 0, 0)), ((400, 0, 0), (400, 300, 0)),
+                                ((400, 300, 0), (0, 300, 0)), ((0, 300, 0), (0, 0, 0))])
+    doc.recompute()
+    members = [feature.make_profile("20-6", c, r, 100, doc, edge=(lines, f"Edge{i + 1}"), Anchor=anchor)
+               for i, (c, r) in enumerate(sizes)]
+    doc.recompute()
+    if join:
+        joints.create_joints(doc, members)
+        doc.recompute()
+    return members
+
+
 doc = App.newDocument("pbwall")  # lines_object() uses the global doc
 wall = lines_object("Wall", [((0, 0, 0), (400, 0, 0)), ((400, 0, 0), (400, 0, 300)),
                              ((400, 0, 300), (0, 0, 300)), ((0, 0, 300), (0, 0, 0))])
@@ -467,45 +499,177 @@ bottom = feature.make_profile("20-6", 1, 3, 100, doc, edge=(wall, "Edge1"))
 right_post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(wall, "Edge2"))
 top = feature.make_profile("20-6", 2, 1, 100, doc, edge=(wall, "Edge3"))
 left_post = feature.make_profile("20-6", 2, 2, 100, doc, edge=(wall, "Edge4"))
-feature.ensure_section_offset_properties(bottom)
+wall_members = [bottom, right_post, top, left_post]
+for member, label in zip(wall_members, ("bottom rail", "right post", "top rail", "left post")):
+    member.Label = label
+    feature.ensure_section_offset_properties(member)
 bottom.SectionOffsetX = -10
 doc.recompute()
 shifted = feature.member_frame(bottom).center_offset()
-check(abs(shifted.y + 10) < 1e-7 or abs(shifted.y - 10) < 1e-7,
-      f"the bottom rail's section centre is 10 mm off its sketch edge ({shifted})")
-wall_panel = panels.make_panel(doc, [bottom, right_post, top, left_post], Mount="In slot", Thickness=3)
+check(abs(shifted.y + 10) < 1e-7, f"the bottom rail's section centre is 10 mm off its sketch edge ({shifted})")
+wall_panel = panels.make_panel(doc, wall_members, Mount="In slot", Thickness=3)
 doc.recompute()
-try:
-    lay = panels.layout(wall_panel)
-    spread = max(u for u, _v in lay.corners) - min(u for u, _v in lay.corners)
-    check(wall_panel.isValid() and not wall_panel.Shape.isNull() and spread > 300,
-          f"a panel fits members whose centre lines are 10 mm apart (width {spread:.1f})")
-except ValueError as error:
-    check(False, f"a panel fits members whose centre lines are 10 mm apart ({error})")
+spans = [sheet_span(wall_panel, order, "Y") for order in rotations(wall_members)]
+check(all(s == ((-11.5, -8.5), 0.0) for s in spans),
+      f"an In slot sheet sits in the bottom rail's slot plane, 10 mm off the posts' centre lines, "
+      f"whatever the order of Profiles ({spans})")
+sheet_span(wall_panel, wall_members, "Y")
+lip = bottom.SlotDepth.Value - wall_panel.Clearance.Value
+bb = wall_panel.Shape.BoundBox
+check(abs(bb.XMin - (20 - lip)) < 1e-6 and abs(bb.XMax - (380 + lip)) < 1e-6
+      and abs(bb.ZMin - (30 - lip)) < 1e-6 and abs(bb.ZMax - (290 + lip)) < 1e-6,
+      f"its edges sit {lip:g} mm deep in every slot (X {bb.XMin:.2f}..{bb.XMax:.2f}, Z {bb.ZMin:.2f}..{bb.ZMax:.2f})")
 
-wall_panel.Profiles = [right_post, top, left_post, bottom]
-try:
-    panels.layout(wall_panel)
-    check(False, "a plane through the middle of the post misses its slots")
-except ValueError as error:
-    message = str(error)
-    check("misses the slots" in message, f"a plane between a post's slots is reported ({message})")
-    wall_panel.PlaneOffset = float(message.split("PlaneOffset")[1].split("mm")[0])
-    try:
-        panels.layout(wall_panel)
-        check(True, "the suggested PlaneOffset puts the plane through every slot")
-    except ValueError as again:
-        check(False, f"the suggested PlaneOffset puts the plane through every slot ({again})")
+bottom.SectionOffsetX = 10
+doc.recompute()
+spans = [sheet_span(wall_panel, order, "Y") for order in rotations(wall_members)]
+check(all(s == ((8.5, 11.5), 0.0) for s in spans), f"and with the rail offset the other way ({spans})")
+
+# The plane misses the posts' slots first, and the post's own nearest slot (PlaneOffset -20) misses the
+# rail's only slot: the suggestion must suit every member.
+order = [right_post, top, left_post, bottom]
+message = sheet_span(wall_panel, order, "Y", PlaneOffset=-12)
+check(isinstance(message, str) and "misses the slots of right post; try PlaneOffset +0 mm" in message,
+      f"the suggested PlaneOffset suits every member, not just the one missed ({message})")
+check(sheet_span(wall_panel, order, "Y", PlaneOffset=0) == ((8.5, 11.5), 0.0), "and it puts the sheet in every slot")
+top.SectionOffsetX = 5
+doc.recompute()
+message = sheet_span(wall_panel, order, "Y")
+check(isinstance(message, str) and "no PlaneOffset passes through a slot of every profile" in message,
+      f"slots that no plane passes through all at once are reported as such ({message})")
+top.SectionOffsetX = 0
 
 bottom.SectionOffsetX = -100
 doc.recompute()
-wall_panel.PlaneOffset = 0
-wall_panel.Profiles = [bottom, right_post, top, left_post]
-try:
-    panels.layout(wall_panel)
-    check(False, "a member far from the panel plane is rejected")
-except ValueError as error:
-    check("does not lie in the plane" in str(error), f"a member far from the panel plane is rejected ({error})")
+errors = [sheet_span(wall_panel, order, "Y", PlaneOffset=0) for order in rotations(wall_members)]
+check(all(isinstance(e, str) and e.startswith("bottom rail does not lie in the plane") for e in errors),
+      f"a member far from the others is the one rejected, whatever the order ({errors})")
+App.closeDocument(doc.Name)
+
+# On face: the sheet lies on the outermost face of all members, not on the first member's.
+doc = App.newDocument("pbonface")
+rails = ring("Ring", [(1, 1)] * 4)
+raised = rails[2]
+feature.ensure_section_offset_properties(raised)
+raised.SectionOffsetY = 10
+doc.recompute()
+check(abs(raised.Shape.BoundBox.ZMax - 20) < 1e-6, f"a raised rail reaches Z 20 ({raised.Shape.BoundBox.ZMax:g})")
+face_panel = panels.make_panel(doc, rails, Mount="On face", Thickness=3)
+doc.recompute()
+for side, expected in (("Front", (20.0, 23.0)), ("Back", (-13.0, -10.0))):
+    spans = [sheet_span(face_panel, order, "Z", Side=side) for order in rotations(rails)]
+    check(all(s == (expected, 0.0) for s in spans),
+          f"an On face {side} sheet lies on the raised rail and clears every member, raised rail first or not "
+          f"({spans})")
+App.closeDocument(doc.Name)
+
+# Mixed sizes flush on one face (Bottom center anchor): 2020 rails and 4040 posts.
+doc = App.newDocument("pbflush")
+mixed = ring("Ring", [(1, 1), (2, 2), (1, 1), (2, 2)], anchor="Bottom center")
+mixed_panel = panels.make_panel(doc, mixed, Mount="On face", Thickness=3)
+doc.recompute()
+for side, expected in (("Front", (40.0, 43.0)), ("Back", (-3.0, 0.0))):
+    spans = [sheet_span(mixed_panel, order, "Z", Side=side) for order in rotations(mixed)]
+    check(all(s == (expected, 0.0) for s in spans),
+          f"an On face {side} sheet on 2020 rails and 4040 posts lies on the posts, whatever the order ({spans})")
+slot_panel = panels.make_panel(doc, mixed, Mount="In slot", Thickness=3)
+doc.recompute()
+spans = [sheet_span(slot_panel, order, "Z") for order in rotations(mixed)]
+check(all(s == ((8.5, 11.5), 0.0) for s in spans),
+      f"an In slot sheet uses the slots the rails and posts share, whatever the order ({spans})")
+App.closeDocument(doc.Name)
+
+# 2x4 posts with 1x1 rails lined up with the posts' outer slot (Align slots).
+doc = App.newDocument("pbouter")
+tall = ring("Ring", [(1, 1), (2, 4), (1, 1), (2, 4)], join=False)
+for rail in (tall[0], tall[2]):
+    feature.ensure_section_offset_properties(rail)
+    rail.SectionOffsetY = 30
+doc.recompute()
+outer_panel = panels.make_panel(doc, tall, Mount="In slot", Thickness=3)
+doc.recompute()
+spans = [sheet_span(outer_panel, order, "Z") for order in rotations(tall)]
+check(all(s == ((28.5, 31.5), 0.0) for s in spans),
+      f"a sheet in the posts' outer slot is accepted with a post first or a rail first ({spans})")
+App.closeDocument(doc.Name)
+
+# Nearly coplanar members (section offsets under 0.5 mm) must not depend on the order of Profiles either:
+# the shortcut that keeps the first member's plane only applies when every centre lies exactly on it.
+doc = App.newDocument("pbnear")
+near = ring("Ring", [(1, 1)] * 4)
+for rail, offset in zip(near, (0, 0.3, -0.3, 0)):
+    feature.ensure_section_offset_properties(rail)
+    rail.SectionOffsetY = offset
+doc.recompute()
+near_panel = panels.make_panel(doc, near, Mount="On face", Thickness=3)
+doc.recompute()
+for side, expected in (("Front", (10.3, 13.3)), ("Back", (-13.3, -10.3))):
+    spans = [sheet_span(near_panel, order, "Z", Side=side) for order in rotations(near)]
+    check(all(s == (expected, 0.0) for s in spans),
+          f"an On face {side} sheet on rails offset by 0, +0.3, -0.3 and 0 mm lies on the outermost rail, "
+          f"whatever the order ({spans})")
+near_slot = panels.make_panel(doc, near, Mount="In slot", Thickness=3)
+for rail, offset in zip(near, (0.2, 0, 0.4, 0.2)):
+    rail.SectionOffsetY = offset
+doc.recompute()
+spans = [sheet_span(near_slot, order, "Z") for order in rotations(near)]
+check(all(s == ((-1.3, 1.7), 0.0) for s in spans),
+      f"an In slot sheet on rails offset by 0.2, 0, 0.4 and 0.2 mm lies in the middle of their shared band, "
+      f"whatever the order ({spans})")
+for rail, offset in zip(near, (0, 0.3, -0.3, 0)):
+    rail.SectionOffsetY = offset
+doc.recompute()
+# 0.3 mm off a rail's face is within what a screw pulls in; 0.6 mm is not.
+for side, lowest in (("Front", near[2]), ("Back", near[1])):
+    sheet_span(near_panel, near, "Z", Side=side)
+    found = [w for w in panels.fit_warnings(near_panel) if "off the face of" in w]
+    check(len(found) == 1 and f"lies 0.60 mm off the face of {lowest.Label}," in found[0],
+          f"an On face {side} sheet warns only about the rail 0.6 mm below it, not those 0.3 mm below ({found})")
+App.closeDocument(doc.Name)
+
+# An On face sheet resting on one raised rail floats above the others: that is a warning, and no holes are
+# drilled along the slots of rails the sheet does not rest on.
+doc = App.newDocument("pbfloat")
+rails = ring("Ring", [(1, 1)] * 4)
+raised = rails[2]  # along Y = 300
+feature.ensure_section_offset_properties(raised)
+raised.SectionOffsetY = 10
+doc.recompute()
+float_panel = panels.make_panel(doc, rails, Mount="On face", Thickness=3, HoleDiameter=5, HoleSpacing=150,
+                                EdgeDistance=8, CornerKeepout=25)
+doc.recompute()
+found = [w for w in panels.fit_warnings(float_panel) if "off the face of" in w]
+others = sorted(r.Label for r in rails if r is not raised)
+check(len(found) == 3 and all(any(f"lies 10.00 mm off the face of {label}," in w for w in found) for label in others),
+      f"an On face sheet on a rail raised by 10 mm warns about the three other rails ({found})")
+holes = world_holes(float_panel)
+check(float_panel.HoleCount == len(holes) > 0 and all(abs(h.y - 300) < 1e-6 for h in holes),
+      f"holes are only drilled along the raised rail ({float_panel.HoleCount}, "
+      f"{sorted({round(h.y, 3) for h in holes})})")
+d = panels.drawing(float_panel)
+check(sum("the sheet does not rest on it (10.00 mm off its face)" in n for n in d.notes) == 3,
+      f"the drawing says why the other rails get no holes ({d.notes})")
+from freecad.profile_builder import check as frame_check  # noqa: E402
+findings = [f for f in frame_check.panel_fit(doc) if f.severity == "Warning" and "off the face of" in f.text]
+check(len(findings) == 3, f"the frame check lists the three warnings ({[f.text for f in findings]})")
+check("off the face of" in panels.panel_info(float_panel), "and so does the panel dialog")
+float_panel.Side = "Back"
+doc.recompute()
+found = [w for w in panels.fit_warnings(float_panel) if "off the face of" in w]
+check(len(found) == 1 and f"lies 10.00 mm off the face of {raised.Label}," in found[0],
+      f"on the back the raised rail is the one the sheet does not rest on ({found})")
+check(float_panel.HoleCount > 0 and all(abs(h.y - 300) > 1 for h in world_holes(float_panel)),
+      "and it is the one without holes")
+App.closeDocument(doc.Name)
+
+# The suggested PlaneOffset breaks ties with the lower value, not with float noise: a ring of 2x4 profiles
+# has slots at -10 and +10 mm, equally far from PlaneOffset 0.
+doc = App.newDocument("pbtie")
+wide = ring("Ring", [(2, 4)] * 4)
+tie_panel = panels.make_panel(doc, wide, Mount="In slot", Thickness=3)
+messages = {sheet_span(tie_panel, order, "Z", PlaneOffset=0) for order in rotations(wide)}
+check(all(isinstance(m, str) and "try PlaneOffset -10 mm" in m for m in messages),
+      f"the suggestion between -10 and +10 mm is the lower one ({messages})")
 App.closeDocument(doc.Name)
 
 # Older documents: panels open unchanged.

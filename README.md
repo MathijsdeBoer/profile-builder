@@ -36,24 +36,43 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
   without moving its sketch edge.
 - **Box frame generator**: make a closed cube from outside, inside-clear or centre-line dimensions, with
   separate post and rail profiles. Changing the dimensions or section sizes updates the skeleton and its
-  joints. This first stage generates cubes; open faces, mid-rails, panels and saved templates are not
+  joints. The requested outside or inside-clear size is kept on each side separately, also with different
+  sections on different sides. Rails wider than the posts in both directions would collide at the corners,
+  so they are refused. A section offset (Align slots), an anchor, a spin or a changed joint rule can still
+  change the size; **Check frame** then warns that the frame measures something other than the requested
+  size. This first stage generates cubes; open faces, mid-rails, panels and saved templates are not
   included yet.
 - **Joints**: where profiles on sketch edges meet, they butt against each other (one runs through, the
   others stop at its face) or miter. T-junctions are detected too. Joints follow sketch changes and
   profile size changes, so the cut list tells you "8 × 380, 4 × 470" without any manual trimming.
 - **Align slots**: Ctrl-select the inside (floor) of one slot on each of two profiles and activate the tool.
   The profile you picked first slides along its section until its slot lines up with the second slot, the
-  way two slots meet at a butt joint. No joint is needed, nothing is confirmed, and sketch edges, spin and
-  length stay as they are; the section offset is saved and the change is one undo step. The two profiles
-  must be square to each other, so a turned profile asks you to set its Spin first.
+  way two slots meet at a butt joint. No joint is needed and nothing is confirmed. The slide goes square to
+  both profile axes; for parallel or nearly parallel profiles it goes along the picked face of the first
+  profile. The first profile keeps its sketch edge and its spin, and only its section offset changes. That
+  offset is saved, and the change is one undo step. Joint trims follow the shifted section, so the length of
+  a mitered profile, or of a profile butting against the shifted one, can change. The tool refuses picks
+  whose slots cannot line up by sliding:
+  - a profile whose faces are not square to the slide direction (within about 2.6°), for example one turned
+    by Spin; set its Spin first;
+  - a slot on a face that points along the slide direction (pick a slot on a face next to it);
+  - a slide that would push the first profile into the second, for example two parallel posts standing side
+    by side and picked on faces that look the same way.
 - **Tasks tab**: with the workbench active, the Tasks tab in the Combo View offers the commands that fit
-  what is selected: create tools when nothing relevant is selected (plus the cut list, checks and exports),
-  joint and part tools for selected profiles or joints, **Align slots** for two picked slot floors, and
-  **Calibrate bracket** for a Brackets object. It hides while a task dialog is open.
+  what is selected. Create tools show unless profiles, joints, slot floors or bracket faces are selected.
+  The cut list, checks, exports and pricing show when nothing is selected and the document has profiles.
+  Selected profiles or joints get the joint and part tools, two picked slot floors get **Align slots**, and
+  two faces of one part that is not part of the frame get **Brackets...** and **End plates...**. Faces of a
+  placed bracket, or a Brackets object, get **Calibrate bracket**. The tab hides while a task dialog is
+  open.
 - **Brackets**: your own bracket part, for example a STEP file from your supplier, is placed in every
   square corner of the butt joints, one per slot that lines up on both profiles. Pick the bracket's two
   faces that touch the profiles once, and the brackets follow sketch edits, joint swaps and size
   changes. The cut list counts them, with the article number you type in. Miter corners get none yet.
+  **End plates...** places a flat T plate on the outer faces of each T-junction instead. Where two
+  profiles end on opposite faces of the same profile (a cross), no plates are placed. Where they end on
+  two adjacent faces (a 3D T), each gets one plate, on its side away from the other. Both cases add a
+  note.
 - **Section properties**: Ix, Iy, Wx and Wy of the modelled section, including closed faces and the
   weight class. For example, a 2040 standing on edge is 3.5× stiffer than lying flat.
 - **Panels**: sheets that sit in the slots between profiles or cover the frame face (enclosure sides). You
@@ -97,7 +116,8 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
   errors, profiles that overlap, and ends that meet or nearly meet another profile but have no joint (a
   sketch vertex a few tenths of a millimetre off). It also finds two profiles on the same sketch edge,
   panel fit problems, carriage warnings, pieces longer than a stock bar, lengths that differ by less than
-  a millimetre, and sketch edges without a profile. Clicking a finding selects its objects, and the two
+  a millimetre, sketch edges without a profile, and box frames that no longer measure the size they were
+  given ("Frame skeleton: the frame measures ..."). Clicking a finding selects its objects, and the two
   obvious repairs (delete a duplicate, join ends) are one click. The cut list mentions any issues it
   finds.
 - **Frame stiffness (estimate)**: sideways and twist stiffness at the top of the frame and its first
@@ -122,11 +142,13 @@ topological naming that keeps profiles on the right sketch edge). Tested on 1.0 
 |---|---|
 | **Profile...** | Opens a task panel with a live preview. Uses the selected edges if there are any. |
 | Series drop-downs | Inserts a catalog size straight away with your last-used length and style, placing it on the selected edges if there are any. |
+| **Box frame...** | Creates a closed cube: a frame skeleton, posts and rails (each with its own series and size) and the joints, sized by outside, inside-clear or centre-line dimensions, with a live cut-length summary. |
 | **Joints...** | Joins profiles on sketch edges wherever they meet, using the selected profiles or all of them. |
-| **Align slots** | Ctrl-select one slot floor on each of two profiles; the first profile slides so its slot lines up with the second's. Works with or without joints. |
+| **Align slots** | Ctrl-select one slot floor on each of two profiles; the first profile slides along its section so its slot lines up with the second's. Works with or without joints. Picks whose slots cannot line up by sliding are refused. |
 | **Panel...** | Creates a sheet in the opening between three or more selected profiles. |
 | **Carriage...** | Adds a carriage on the selected profile (click the face it runs on) and shows its clear run and stroke. Select a solid as well to show it as the carriage. |
 | **Brackets...** | Places your bracket part in the corners of the joints. Pick its two contact faces first: the one on the profile that ends at the joint, then the one on the profile it meets. |
+| **End plates...** | Places a flat T plate on the outer faces of each T-junction. Pick the plate's face that lies on the profiles first, then the face at the end of its stem. |
 | **Calibrate bracket** | Sets again how the bracket sits, from its two contact faces picked on a placed bracket or on the part. |
 | **Pricing and stock...** | Prices, stock bar length, kerf, cutting, delivery and tax, with a live estimate. |
 | **Cut list and costs** | Creates or updates the `Cut list` spreadsheet. |
@@ -235,6 +257,7 @@ proposal, an implementation approach checked against the code, and the effort.
 - `freecadcmd tests/freecad_panels.py`: panel fabrication, panel fit and stable piece marks
 - `freecadcmd tests/freecad_check.py`: the frame check
 - `freecadcmd tests/freecad_slot_alignment.py`: profile slot alignment by picked slots and at butt joints
+- `freecadcmd tests/freecad_context_tasks.py`: which command groups the Tasks tab offers for a selection
 - GitHub Actions runs all of these on every push, on FreeCAD 1.0 and 1.1 (`.github/workflows/tests.yml`).
   The FreeCAD scripts exit non-zero when a check fails.
 
