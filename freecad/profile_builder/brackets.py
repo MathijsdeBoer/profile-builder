@@ -314,7 +314,9 @@ def joint_spots(joint, rule, context, style="Corner", per_slot=False, offset=0.0
       profile, when both ends reach the other's face.
 
     With the "End plate" style, a plate goes on each of the two flush side faces of a T-junction
-    instead, across both profiles (see ``_plate``; ``per_slot`` and ``offset`` are its options).
+    instead, across both profiles (see ``_plate``; ``per_slot`` and ``offset`` are its options). Not on a
+    side where another profile ends on the same face of the one running through, or where one ends on
+    its far face: those plates would overlap.
     """
     if not joint.isValid():
         return [], [f"{joint.Label} has an error, so it gets no brackets"]
@@ -350,12 +352,28 @@ def joint_spots(joint, rule, context, style="Corner", per_slot=False, offset=0.0
             return [], [f"{joint.Label} is not a T-junction, so it gets no end plate; end plates go where one "
                         "profile ends on the side of another that runs through"]
         tf = frames[through.Name]
-        for obj, end, a in butting:
-            if abs(a.dot(tf.z)) > joints.PERPENDICULAR or _reach(joint, obj, end) > tf.support(a) + short:
+        # The profiles ending on the side faces of the one running through (one in line with it has none).
+        sides = [(obj, end, a) for obj, end, a in butting if abs(a.dot(tf.z)) <= joints.PERPENDICULAR]
+        for obj, end, a in sides:
+            if _reach(joint, obj, end) > tf.support(a) + short:
                 continue
             w = a.cross(tf.z)
             w.normalize()
             for m in (w, w * -1):
+                # On this side, the plate would run into a profile ending on the face it lies on (a corner post
+                # with rails along X and Y), or lie on top of the plate of one ending on the far face (a cross).
+                facing = [o for o, _e, b in sides if o != obj and b.dot(m) > joints.PERPENDICULAR]
+                opposite = [o for o, _e, b in sides if o != obj and b.dot(a) < -joints.PARALLEL]
+                for other in facing:
+                    p, q = sorted((obj.Label, other.Label))
+                    notes.append(f"{joint.Label}: {p} and {q} end on neighbouring faces of {through.Label}, so "
+                                 "neither gets an end plate on the side facing the other")
+                for other in opposite:
+                    p, q = sorted((obj.Label, other.Label))
+                    notes.append(f"{joint.Label}: {p} and {q} end on opposite faces of {through.Label}, so their "
+                                 "end plates would lie on top of each other; neither gets one")
+                if facing or opposite:
+                    continue
                 placements, note = _plate(vertex, obj, frames[obj.Name], a, through, tf, m, per_slot, offset)
                 spot(placements, obj, through, m)
                 if note:
@@ -399,12 +417,44 @@ def _names(objs):
     return [o.Name for o in objs]
 
 
+def _claims(obj, joint):
+    """Whether Brackets object ``obj``, given ``joint`` explicitly, takes it from all-joints objects.
+
+    Only joints its Style can place at: butt joints, and for end plates only T-junctions. This is decided
+    from the joint itself, never from what ``obj`` computed, which may not be up to date yet: nothing links
+    the all-joints object to ``obj``, so either may recompute first.
+    """
+    if not joints.is_joint(joint) or joint.Type != "Butt":
+        return False
+    return getattr(obj, "Style", "Corner") != "End plate" or bool(joints.passing_of(joint))
+
+
+def _edited(obj, before):
+    """Whether the Joints of ``obj``, which were the names ``before``, changed by more than FreeCAD
+    dropping joints that are being deleted. Unknown ``before`` counts as an edit."""
+    if before is None:
+        return True
+    now = _names(obj.Joints)
+    if not set(now) <= set(before):
+        return True
+    for name in set(before) - set(now):
+        joint = obj.Document.getObject(name)
+        if joint is not None and not getattr(joint, "Removing", False):
+            return True
+    return False
+
+
 def claimed_joints(obj):
-    """Names of the joints that other Brackets objects with their own joint choice place brackets at."""
+    """Names of the joints that other Brackets objects with their own joint choice place brackets at.
+
+    A Joints list that AllJoints filled (JointsComputed, kept after AllJoints is switched off) is no
+    choice, and claims nothing until it is edited.
+    """
     claimed = set()
     for other in obj.Document.Objects:
-        if other is not obj and is_brackets(other) and not other.AllJoints:
-            claimed.update(_names(j for j in other.Joints if joints.is_joint(j)))
+        if (other is not obj and is_brackets(other) and not other.AllJoints
+                and not getattr(other, "JointsComputed", False)):
+            claimed.update(_names(j for j in other.Joints if _claims(other, j)))
     return claimed
 
 
@@ -434,12 +484,44 @@ def bracket_transform(obj):
     """From the part's own coordinates to the bracket frame at a corner.
 
     SourceFrame is undone, the bracket is shifted along its width by
-    SlotOffset and, with SwapLegs, turned so the legs change places.
+    SlotOffset and, with SwapLegs, turned so the legs change places. End
+    plates ignore both: their panel does not show them, and in the plate frame
+    Z is the plate's normal, so they would lift the plate off the faces or turn
+    it into the profiles.
     """
+    if obj.Style == "End plate":
+        return obj.SourceFrame.inverse()
     m = App.Placement(V(0, 0, obj.SlotOffset.Value), App.Rotation()).multiply(obj.SourceFrame.inverse())
     if obj.SwapLegs:
         m = App.Placement(V(), SWAP).multiply(m)
     return m
+
+
+def _spots(obj, joint_list, context):
+    """([(joint, placement, profile on leg 1, profile on leg 2)], [notes], {corner key: label}) of a Brackets object.
+
+    The corners in SkippedCorners are listed but get no bracket.
+    """
+    found, notes, corners = [], [], {}
+    skipped = set(obj.SkippedCorners)
+    for joint in joint_list:
+        try:
+            spots, why = joint_spots(joint, obj.Rule, context, obj.Style, obj.PerSlot, obj.PlateOffset.Value)
+        except ValueError as e:
+            spots, why = [], [f"{joint.Label} gets no brackets: {e}"]
+        for pl, a, b, (key, label) in spots:
+            corners[key] = label
+            if key not in skipped:
+                found.append((joint, pl, a, b))
+        notes += why
+    return found, list(dict.fromkeys(notes)), corners  # both sides of a T-junction give the same note
+
+
+def _write_corners(obj, corners):
+    if list(obj.Corners) != list(corners):
+        obj.Corners = list(corners)
+    if list(obj.CornerLabels) != list(corners.values()):
+        obj.CornerLabels = list(corners.values())
 
 
 def _same(a, b):
@@ -504,6 +586,9 @@ class Brackets:
         add("App::PropertyLinkList", "ExcludedJoints", "Brackets",
             "With AllJoints: joints that get no brackets from this object")
         add("App::PropertyLinkList", "Joints", "Brackets", "Joints whose corners get brackets")
+        add("App::PropertyBool", "JointsComputed", "Brackets",
+            "Joints was filled by AllJoints and not edited since, so it claims no joints from other Brackets "
+            "objects (see SkipClaimed)", False, mode=2)
         add("App::PropertyLinkList", "Members", "Brackets",
             "Profiles of the frame that the joints are in, so the brackets follow their changes", mode=2)
         add("App::PropertyLinkList", "FrameJoints", "Brackets",
@@ -524,7 +609,7 @@ class Brackets:
         add("App::PropertyStringList", "Positions", "Brackets",
             "Joint and profiles of each bracket, in the order of PlacementList", mode=1)
         add("App::PropertyStringList", "Notes", "Brackets", "Joints that got no brackets, and why", mode=1)
-        for name in ("Count", "Positions", "Notes", "Corners", "CornerLabels"):
+        for name in ("Count", "Positions", "Notes", "Corners", "CornerLabels", "JointsComputed"):
             obj.setPropertyStatus(name, "Output")
         # The link array is an output of execute().
         for name, mode in (("ElementCount", 1), ("PlacementList", 1), ("ShowElement", 2), ("LinkTransform", 2),
@@ -535,7 +620,10 @@ class Brackets:
     def onDocumentRestored(self, obj):
         self._restoring = True
         try:
+            computed = getattr(obj, "AllJoints", False) and "JointsComputed" not in obj.PropertiesList
             self.add_properties(obj)
+            if computed:
+                obj.JointsComputed = True  # saved before the property existed: AllJoints filled Joints
             if list(obj.getEnumerationsOfProperty("Rule")) != list(RULES):
                 rule = obj.Rule
                 obj.Rule = list(RULES)
@@ -548,9 +636,18 @@ class Brackets:
             self._restoring = False
         obj.setEditorMode("Joints", 1 if obj.AllJoints else 0)
 
+    def onBeforeChange(self, obj, prop):
+        if prop == "Joints":
+            self._joints_before = _names(obj.Joints)  # transient: dumps() saves nothing
+
     def onChanged(self, obj, prop):
         if prop == "AllJoints" and "Joints" in obj.PropertiesList:
             obj.setEditorMode("Joints", 1 if obj.AllJoints else 0)  # only the view changes
+        # Joints set by hand (not by execute for AllJoints) is a choice again, and claims its joints.
+        if (prop == "Joints" and not getattr(self, "_filling", False) and not getattr(self, "_restoring", False)
+                and not feature.replaying(obj) and getattr(obj, "JointsComputed", False)
+                and _edited(obj, getattr(self, "_joints_before", None))):
+            obj.JointsComputed = False
 
     def mustExecute(self, obj):
         # A joint made later (the Joints command after adding a profile)
@@ -567,7 +664,13 @@ class Brackets:
         if obj.AllJoints:
             everything = effective_joints(obj)
             if _names(obj.Joints) != _names(everything):
-                obj.Joints = everything
+                self._filling = True
+                try:
+                    obj.Joints = everything
+                finally:
+                    self._filling = False
+            if not obj.JointsComputed:
+                obj.JointsComputed = True
         joint_list = [j for j in obj.Joints if joints.is_joint(j)]
         context = FrameInfo(joint_list)
         others, profiles = frame_links(joint_list, context.joints, context.profiles)
@@ -578,26 +681,11 @@ class Brackets:
         if obj.LinkedObject is None:
             # FreeCAD puts the label in front of the message.
             raise ValueError("no bracket part; set LinkedObject to the bracket (for example an imported STEP body)")
-        found, notes, corners = [], [], {}
-        skipped = set(obj.SkippedCorners)
-        for joint in joint_list:
-            try:
-                spots, why = joint_spots(joint, obj.Rule, context, obj.Style, obj.PerSlot, obj.PlateOffset.Value)
-            except ValueError as e:
-                spots, why = [], [f"{joint.Label} gets no brackets: {e}"]
-            for pl, a, b, (key, label) in spots:
-                corners[key] = label
-                if key not in skipped:
-                    found.append((joint, pl, a, b))
-            notes += why
-        notes = list(dict.fromkeys(notes))  # both sides of a T-junction give the same note
+        found, notes, corners = _spots(obj, joint_list, context)
         if not found and not notes:
             notes.append("every corner is switched off in SkippedCorners" if corners else
                          "no corners for brackets found; check the joints, closed faces and Rule")
-        if list(obj.Corners) != list(corners):
-            obj.Corners = list(corners)
-        if list(obj.CornerLabels) != list(corners.values()):
-            obj.CornerLabels = list(corners.values())
+        _write_corners(obj, corners)
 
         local = bracket_transform(obj)
         inverse = obj.Placement.inverse()
@@ -727,6 +815,15 @@ def contact_frame(face_a, face_b, part=None, vertex=None):
     return result, notes
 
 
+def _width_near(shape, bb, x):
+    """The width (along Y) of ``shape`` in a thin slice at ``x``, at one end of its bounding box ``bb``."""
+    t = min(1.0, bb.XLength / 10)
+    x0 = min(max(x - t / 2, bb.XMin), bb.XMax - t)
+    box = Part.makeBox(t, bb.YLength + 2, bb.ZLength + 2, V(x0, bb.YMin - 1, bb.ZMin - 1))
+    piece = shape.common(box)
+    return piece.BoundBox.YLength if not piece.isNull() and piece.Volume > 1e-9 else 0.0
+
+
 def plate_frame(face_contact, face_end, part=None):
     """The plate frame from its two faces, in the part's own coordinates.
 
@@ -743,17 +840,28 @@ def plate_frame(face_contact, face_end, part=None):
     if abs(nc.dot(ne)) > SQUARE:
         raise ValueError("The two faces must be square to each other: the face that lies on the profiles, and "
                          "the face at the end of the plate's stem")
+    # The faces picked the other way round give a frame across the plate's thickness: plates on edge.
+    # Compared on the picked faces, not the part's extent, which bolts and T-nuts in a supplier's STEP add to.
+    if face_contact.Area <= face_end.Area:
+        raise ValueError("The plate would stand on its edge: the first face is smaller than the second. Pick the "
+                         "faces in this order: first the flat face that lies on the profiles, then the face at "
+                         "the end of its stem")
     z = nc * -1
     frame = _placement(face_contact.CenterOfMass, ne, z.cross(ne))
     shape = part if part is not None and not part.isNull() else Part.Compound([face_contact, face_end])
     notes = []
-    bb = shape.transformed(frame.inverse().toMatrix()).BoundBox
+    local = shape.transformed(frame.inverse().toMatrix())
+    bb = local.BoundBox
     if shape.Solids:
         if bb.ZMax < 0.5:
             raise ValueError("The first face is the one on the plate's far side; pick the face that lies on the "
                              "profiles")
         if bb.ZMin < -0.5:
             notes.append("part of the plate lies below the face picked as the one on the profiles; check the pick")
+        # A T plate's bar is wider than its stem: the face at its outer end is no stem end.
+        if _width_near(local, bb, bb.XMax) > _width_near(local, bb, bb.XMin) + 0.5:
+            notes.append("the plate is wider at the second face than at its other end, so that face looks like "
+                         "the outer end of the bar; pick the face at the end of the stem")
     end_x = frame.inverse().multVec(face_end.CenterOfMass).x
     if abs(end_x - bb.XMax) > 0.5:
         notes.append("the second face is not at the end of the plate; check that it is the end of the stem")
@@ -904,6 +1012,20 @@ def problem(obj):
     if "Touched" in obj.State:
         return "not recomputed (recompute the document, or fix the object it depends on)"
     return None
+
+
+def fill_corners(obj):
+    """Fill Corners of a Brackets object saved before it existed, for the task panel's checklist.
+
+    Restoring adds Corners empty, and nothing recomputes the object until something changes. Brackets
+    placed with no corners listed can only come from such a document. Only Corners and CornerLabels are
+    written, both outputs, so the object is not touched and its placements stay as they are.
+    """
+    if not obj.Count or obj.Corners or not obj.isValid():
+        return
+    joint_list = [j for j in obj.Joints if joints.is_joint(j)]
+    _found, _notes, corners = _spots(obj, joint_list, FrameInfo(joint_list))
+    _write_corners(obj, corners)
 
 
 def item_name(obj):
