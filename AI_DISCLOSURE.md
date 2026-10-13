@@ -10,16 +10,21 @@ and what that means for the code.
 | Model | Claude Opus 5.5, by Anthropic |
 | Model ID | `claude-opus-5-5` |
 | Tool | Claude Code, in the Code tab of the Claude desktop app (Windows 11) |
+| Other tool | GitHub Copilot, for five commits on 2026-10-07 (see the timeline); the model behind it is not recorded |
 | Human | Mathijs de Boer: direction, requirements, testing and review in FreeCAD |
 
 The model worked as a coding agent in this repository. It wrote files, ran the tests, and ran FreeCAD
 1.1 (both `freecadcmd` and the GUI, driven by test scripts) to check its own work. Commits it created
-carry a `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer.
+carry a `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer. Commits made with GitHub
+Copilot carry a `Co-authored-by: Copilot` trailer instead. Three commits of AI-assisted work (`4406f9d`,
+`536aec2` and `1af88bf`) carry no AI trailer; the timeline describes them.
 
 ## Timeline
 
-All work was done in one Claude Code session. On 2026-09-28 the session also ran Claude Code workflows,
-which spread work over several subagents of the same model.
+Up to 2026-09-30 the work was done in one main Claude Code session; the rows say where another session
+was used. From 2026-09-28 that session also ran Claude Code workflows, which spread work over several
+subagents of the same model. Later work was done in separate sessions, and on 2026-10-07 with GitHub
+Copilot.
 
 | Date | Work | Commit |
 |---|---|---|
@@ -38,18 +43,21 @@ which spread work over several subagents of the same model.
 | 2026-09-29 | Frame stiffness estimate (first stage): a 3D beam solver tested against closed forms, a model built from the profiles and joints, results as a range between loose and stiff joints, and a baseline to compare variants. The review found 7 issues; 6 were fixed. | `feature/frame-stiffness` |
 | 2026-09-29 | Linear axis carriage: the clear run and stroke from the members that really block the carriage, and the belt length as metre ware in the cut list. The review found 4 issues; all were fixed. | `feature/linear-axis` |
 | 2026-09-29 | Bracket placement: the user's own bracket part in the square corners of butt joints, as a link array, with calibration from two contact faces and a Hardware block in the cut list. The review found 6 issues; 5 were fixed (the sixth was these documentation rows). | `feature/brackets` |
-| 2026-10-01 | Bracket control per joint and corner (claiming, exclusion, a corner checklist) and an End plate style for T-junctions, with its own calibration and command. Written in one session; tested with new checks in `tests/freecad_brackets.py`. | uncommitted |
 | 2026-09-30 | Fix for a tie in choosing the through profile in frames turned 45°, which fell back to creation order (a variant of the pinwheel bug). Found by the bracket reviewer, written in a separate Claude Code session started from that suggestion, then checked (including that its tests fail without the fix) and merged by the maintainer's session. | `b5075a1` |
 | 2026-09-30 | Stable piece marks (kept while a piece is unchanged, retired when it goes, marks for sheets, labels in the 3D view, a Renumber command), the rest of the panel fit check (cut tolerance, a cold check that the sheet stays in its slots, screw-hole play for sheets on the face) and panel fabrication (holes on the slot centre lines, rounded corners, sketch cutouts, DXF and SVG export, hole counts in the cut list). Written in one session without sub-agents, to save tokens; tested with new pytest and FreeCAD scripts and a GUI check. | `2212cdd` |
 | 2026-09-30 | Addon Manager readiness (licence texts, package metadata, CI on the FreeCAD 1.0 and 1.1 AppImages, translation groundwork with a pure-Python extraction tool) and the Check frame command. Running the suites on older FreeCAD versions in WSL showed that 0.21 was never really supported (no topological naming), so freecadmin became 1.0, and turned up two FreeCAD 1.0 bugs (amounts without cents, moments shown as energy). Two review workflows (six reviewers, six adversarial verifiers) checked commit 2212cdd and the new work: 35 of 39 findings were confirmed, among them sheets with different fan holes sharing one mark, undo bringing back printed marks, and a CI setup that would have crashed on every push. All were fixed with regression tests; the key fixes were mutation-checked. | `01f2672` |
-
-| 2026-10-05 | First stage of the box frame generator: a stable parametric skeleton, a live transactional cube-generation panel with outside/inside-clear/centre-line sizing, mixed post and rail sections, and FreeCAD smoke coverage. Added carriage warnings to the cut-list report. | |
-| 2026-10-05 | Slot alignment tool: solves profile spin and local section offsets against adjoining profiles, supports reference selection by picking slot-floor faces, and has FreeCAD tests for 4040 rails and 2060 posts. Keeps joints current when an aligned profile is deleted. | |
+| 2026-10-01 | Bracket control per joint and corner (claiming, exclusion, a corner checklist) and an End plate style for T-junctions, with its own calibration and command. Written in one session; tested with new checks in `tests/freecad_brackets.py`. | `1af88bf` |
+| 2026-10-05 | First stage of the box frame generator: a stable parametric skeleton, a live transactional cube-generation panel with outside/inside-clear/centre-line sizing, mixed post and rail sections, and FreeCAD smoke coverage. Added carriage warnings to the cut-list report. | `4406f9d` |
+| 2026-10-05 | First slot alignment tool: it solved profile spin and local section offsets against adjoining profiles at butt joints, took reference slots from picked slot floors, and had FreeCAD tests for 4040 rails and 2060 posts. Keeps joints current when an aligned profile is deleted. The command was replaced on 2026-10-07 by the direct two-pick slide; that solver is still in the module but unused. | `4406f9d`, `536aec2` |
+| 2026-10-07 | Made with GitHub Copilot: Align slots as a direct slide from two picked slot floors, with or without a joint, and two fixes to it (slot floor positions, then slot lines computed from the profile frame, so the command uses only the direct path). | `df6137e`, `f7fc1b8`, `0798df9` |
+| 2026-10-07 | Made with GitHub Copilot: panels whose members are not coplanar, and the selection-aware command groups in the Tasks tab, with a FreeCAD console test added to CI. | `fc7b4f2`, `0c6194e` |
+| 2026-10-08 | Review and fix of the work since `dd78e55` (Claude Code, Claude Opus 5.5), as workflows. Reviewers in five areas (slot alignment, box frame, brackets and end plates, panels, GUI wiring and docs) reported 41 findings, and one verifier per finding checked it against the code, reproducing it in FreeCAD where it could: 40 were confirmed and 1 refuted. One fix agent per area then worked on its own branch, each branch was reviewed again and fixed further, and an integration agent merged the branches, regenerated the translation template, ran all test suites and updated the docs. | `review-fixes` |
 
 ## Who did what
 
 **The AI model:**
-- wrote all the code, the tests, the README and this file;
+- wrote nearly all the code, the tests, the README and this file (part of the 2026-10-07 work was
+  written with GitHub Copilot);
 - drew the icons, most of them with a script from the actual section geometry;
 - chose the default profile dimensions.
 

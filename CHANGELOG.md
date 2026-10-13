@@ -6,15 +6,43 @@ Most of this workbench was written by an AI model; see [AI_DISCLOSURE.md](AI_DIS
 
 Added:
 - Box frame generator for closed cubes, sized by outside, inside-clear or centre-line dimensions, with
-  separate post and rail profiles and a live cut-length summary.
+  separate post and rail profiles and a live cut-length summary. The requested size is kept on each side,
+  also with different sections on different sides, and Check frame warns when the frame no longer
+  measures that size. Rails wider than the posts in both directions are refused, because they would
+  collide at the corners. Sizes are read in the unit the field shows, and fields you do not touch keep
+  their exact value in every unit schema.
 - Linear-carriage warnings, such as insufficient stroke, in the cut-list Notes block.
-- Slot alignment at butt joints, including saved section offsets for matching different section grids.
-- Align slots works from two picked slot floors: the first profile slides to line its slot up with the second, with or without a joint and without a confirmation dialog.
-- The Tasks tab shows the commands that fit the current selection (create, joints and parts, Align slots, report and checks).
-- Panels accept profiles whose centre lines are not in one plane (different section sizes, or a section offset from Align slots), as long as the panel plane reaches each profile and, for In slot, passes through one of its slots.
+- Align slots: pick one slot floor on each of two profiles, and the first profile slides along its section
+  (a saved section offset) until its slot lines up with the second, with or without a joint and without a
+  confirmation dialog. Its sketch edge and spin stay as they are; joint trims follow the shifted section,
+  so the length of a mitered or butting profile can change. Parallel and nearly parallel profiles are
+  lined up across the picked face. Picks whose slots cannot line up by sliding are refused: a profile
+  whose faces are not square to the slide direction, a face that points along it, and a slide that would
+  push the first profile into the second.
+- End plates: a Brackets style and an **End plates...** command for flat T plates on the outer faces of
+  T-junctions, with their own calibration from two faces of the plate (picked in the wrong order, they are
+  refused). A cross gets no plates and a 3D T one plate per butting profile, both with a note. SlotOffset
+  and SwapLegs do not apply to end plates.
+- Bracket control per joint and corner: a checklist of corners in the task panel (`SkippedCorners`),
+  `ExcludedJoints`, and `SkipClaimed`, so an all-joints Brackets object leaves out the joints another
+  Brackets object was given. Claims depend on the joints only: End plates claim only T-junctions, and a
+  Joints list filled by AllJoints claims nothing until you edit it (deleting a joint is no edit).
+  Brackets objects from older documents get their corner checklist when the task panel opens.
+- The Tasks tab shows the commands that fit the current selection: create, joints and parts, Align slots,
+  Brackets and End plates for two faces of a bracket part, Calibrate bracket for a placed bracket, and the
+  report and checks.
+- The "Profile Builder tools" toolbar is split into three: Joints and Alignment, Component Tools, and
+  Output and Analysis.
+- Panels accept profiles whose centre lines are not in one plane (different section sizes, or a section
+  offset from Align slots), as long as one plane reaches every profile. In slot also needs that plane to
+  pass through one of each profile's slots. PlaneOffset is measured from the middle of the part all
+  sections share, so the order of the profiles does not matter. An On face sheet lies on the outermost
+  face of all the profiles, and a missed slot suggests a PlaneOffset that suits every profile.
 
 Fixed:
 - Deleting a profile refreshes its joints, including a manual through-profile choice.
+- A profile whose path object, or one of whose joint sources, has an error is listed in the cut list's
+  error block, instead of keeping its old length.
 
 ## 0.2.0 (2026-09-30)
 

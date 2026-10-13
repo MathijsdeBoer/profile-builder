@@ -335,6 +335,11 @@
     </message>
     <message>
         <location filename="../../brackets.py"/>
+        <source>Joints was filled by AllJoints and not edited since, so it claims no joints from other Brackets objects (see SkipClaimed)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../brackets.py"/>
         <source>Joints whose corners get brackets</source>
         <translation type="unfinished"></translation>
     </message>
@@ -933,6 +938,11 @@
     </message>
     <message>
         <location filename="../../context_tasks.py"/>
+        <source>Bracket part</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../context_tasks.py"/>
         <source>Brackets</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1165,6 +1175,11 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>Lining up these slots would push {target} into {reference}: {reference} sits beside it in the direction the slots would slide.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../pricing_ui.py"/>
         <source>Load my defaults</source>
         <translation type="unfinished"></translation>
@@ -1286,6 +1301,11 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../box_frame_ui.py"/>
+        <source>Rails wider than the posts in both directions collide at the corners. Choose posts at least as wide as the rails in one direction, or narrower rails.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../commands.py"/>
         <source>Renumber piece marks</source>
         <translation type="unfinished"></translation>
@@ -1397,6 +1417,11 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>The slots on the {face} face of {profile} cannot be lined up with {other}: that face points the way the slots would slide. Pick a slot on a face next to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../commands.py"/>
         <source>The two slots already line up.</source>
         <translation type="unfinished"></translation>
@@ -1458,7 +1483,17 @@ Select a sketch and insert profiles on its edges first.</source>
     </message>
     <message>
         <location filename="../../slot_alignment.py"/>
+        <source>{profile} cannot align any selected reference slot at the current butt joints</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../slot_alignment.py"/>
         <source>{profile} does not follow a sketch edge, so its slots cannot be aligned at joints</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>{profile} has no open, perpendicular slot faces to align with an unselected profile at a butt joint</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1487,6 +1522,11 @@ Select a sketch and insert profiles on its edges first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../slot_alignment.py"/>
+        <source>{reference} is turned (Spin) so its slots cannot be lined up with {target}; set its Spin so its faces are square to {target} first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../box_frame_ui.py"/>
         <source>{size} (on side)</source>
         <translation type="unfinished"></translation>
@@ -1506,7 +1546,7 @@ Select a sketch and insert profiles on its edges first.</source>
     </message>
     <message>
         <location filename="../../commands.py"/>
-        <source>Ctrl-select the inside of one slot on each of two profiles, then activate. The profile picked first slides along its section so its slot lines up with the second. Sketch edges, spin and length stay fixed.</source>
+        <source>Ctrl-select the inside of one slot on each of two profiles, then activate. The profile picked first slides along its section so its slot lines up with the second. Its sketch edge and spin stay fixed. Joint trims follow the shifted section, so the lengths of mitered or butting profiles can change.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -1781,12 +1821,12 @@ Select the joint (orange dot or tree item), or a profile to swap both its ends.<
     </message>
     <message>
         <location filename="../../init_gui.py"/>
-        <source>Joint &amp; Alignment</source>
+        <source>Joints and Alignment</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../init_gui.py"/>
-        <source>Output &amp; Analysis</source>
+        <source>Output and Analysis</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

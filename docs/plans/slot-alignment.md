@@ -14,18 +14,27 @@ wide face. Rotating the post may orient the right face but cannot remove the hal
 
 - The **Align slots** command takes exactly two Ctrl-selected slot floors, one per profile. The first profile is
   moved, the second is the reference, and the change applies at once without a dialog. No joint is required.
-- The slots are lined up across the cross product of the two profile axes (across the face normal for parallel
-  profiles) by changing the target's section offset only; its spin, sketch edge and length stay as they are. A
-  target turned so that direction is not along its section X or Y is refused with a message.
-- slot_alignment.plan() still offers the joint-based search (spin and offsets matching as many slots as possible at
-  butt joints) as an API, but the command no longer uses it.
+- `slot_alignment.direct_align_slots()` lines the slots up across the cross product of the two profile axes, or,
+  for parallel and nearly parallel profiles (`joints.PARALLEL`), along the target's picked face, by changing the
+  target's section offset only. Its spin and sketch edge stay as they are. Joint trims follow the shifted section,
+  so the length of a mitered target, or of a profile butting against it, can change.
+- It refuses picks whose slots cannot line up by sliding, with a message and without moving anything:
+  - a target or reference whose section X or Y is not along the slide direction (within `joints.PARALLEL`, about
+    2.6°), such as a profile turned by Spin;
+  - a picked face whose slots do not sit side by side along the slide direction (the face points along it);
+  - a slide that would push the target into the reference: the overlap of the two profiles' outer boxes
+    (`check._envelope`) would grow by more than `check.CLASH_VOLUME`. This covers parallel profiles standing side
+    by side and picked on faces that look the same way, and side-by-side profiles skewed past `joints.PARALLEL`.
+    Overlap that is already there, at an unjoined corner, does not count.
 - `SectionOffsetX` and `SectionOffsetY` are created only when a profile needs a non-zero shift and are saved with
   that profile. They shift the section relative to its path; sketch edges stay in place, and joints, frame checks,
-  carriage obstacles and profile geometry use the shifted section.
-- Applying the result is one undoable document transaction. Equally good solutions use the other adjacent joint
-  directions to prefer an inward shift where that can be inferred.
+  carriage obstacles, panels, brackets and profile geometry use the shifted section.
+- Applying the result is one undoable document transaction.
+- The older joint-based solver (`slot_alignment.plan()`, which searched spins and offsets that match as many slots
+  as possible at butt joints and preferred an inward shift on ties) is still in the module, but the command does not
+  use it; only `tests/freecad_slot_alignment.py` calls it.
 
 ## Scope
 
-The command moves only the section offset of the first profile picked. It does not move sketches, rotate profiles
-or check that the slots face each other.
+The command moves only the section offset of the first profile picked. It does not move sketches or rotate
+profiles. It does not check that the two slots face each other, only that they can be lined up by sliding.

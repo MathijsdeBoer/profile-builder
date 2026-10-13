@@ -73,14 +73,37 @@ Done:
   faces, misaligned slots, frames turned 30°, 45° and 135° about Z (made in two orders), nested
   App::Parts (a library of brackets, a whole design), a PartDesign body, miter joints, a missing part,
   AllJoints and the command flow (with a stand-in for the GUI selection, also refusing a selected group
-  or link that holds the frame's profiles).
+  or link that holds the frame's profiles). End plates are tested at T-junctions, a cross, a 3D T and
+  on a 2040 rail (with and without `PerSlot`), and claims, joint deletion, the style switch, the pick
+  order and an old document are covered too.
+- **Different brackets at different joints**: give each Brackets object its own joints. An all-joints
+  object made by the command has `SkipClaimed` on, so it leaves out the joints other objects claim, and
+  `ExcludedJoints` removes further joints from it (both only apply with `AllJoints`; edit `ExcludedJoints`
+  in the property editor). Claims are decided from the joints alone: a butt joint, and for End plate
+  objects only T-junctions. A Joints list filled by `AllJoints` (`JointsComputed`) claims nothing until the
+  user edits it; FreeCAD dropping a deleted joint from the list is no edit (`onBeforeChange` keeps the old
+  names). Single corners are switched off with `SkippedCorners` (a checklist in the task panel, from
+  `Corners`/`CornerLabels`; the key names the joint, both profiles and the corner position, by object
+  name). A skipped corner stays listed. Documents saved before `Corners` existed get the checklist filled
+  when the task panel opens (`fill_corners`).
+- **End plates** (`Style = "End plate"`, command **End plates...**): a flat plate on the outer face of a
+  T-junction, one per side (or per slot with `PerSlot`). Calibrated from the face that lies on the profiles
+  and the face at the end of the stem (`plate_frame`). Faces picked in the wrong order are refused (the
+  contact face must be the larger one), and a bar end picked as the stem end gets a note. The bar's outer
+  end sits flush with the through profile's far face (`PlateOffset` adjusts). Needs the two profiles' faces
+  flush on that side (else a note). L corners get a note, `Rule` is ignored, and `SlotOffset` and
+  `SwapLegs` do not apply. Where two profiles end on opposite faces of the through profile (a cross), no
+  plates are placed, with a note. Where they end on two adjacent faces (a 3D T), each gets one plate, on
+  the through profile's face away from the other, with a note.
 
 Not done yet:
 - Miter corners (noted in the object's Notes) and angled butt joints.
 - Corners whose slots do not line up, such as a 2020 rail centred on the wide face of a 2040 post, get a
   note instead of a bracket. Offset brackets, or brackets that span a wider face, are not modelled.
-- Flat corner plates and gussets on the outside faces of a corner (only brackets inside the corner are
-  placed).
+- Flat L-shaped corner plates and gussets on the outside faces of an L corner. Only T-junctions get flat
+  plates (End plates).
+- A single plate over a cross of three or more members, and a preview for end plates.
+- One Brackets object with several bracket parts, and per-series filters.
 - Pricing and pack sizes of hardware, and hardware mass in the delivery weight: see
   [hardware BOM](hardware-bom.md), which should extend the Hardware block.
 - Clash checks (bracket against panel, door or other bracket): see [frame check](frame-check.md). The
@@ -88,26 +111,11 @@ Not done yet:
 - The "towards the panel side" variant of the inner rule, and a "Top and bottom" rule.
 - A preview in the calibration step, and GUI testing of the two commands and the task panel (the
   commands were only run headless with a stand-in selection).
-- Different brackets at different joints: give each Brackets object its own joints. An all-joints object
-  made by the command has `SkipClaimed` on, so it leaves out the joints other objects were given
-  explicitly, and `ExcludedJoints` removes further joints from it (both only apply with `AllJoints`;
-  edit `ExcludedJoints` in the property editor). Single corners are switched off with `SkippedCorners`
-  (a checklist in the task panel, from `Corners`/`CornerLabels`; the key names the joint, both profiles
-  and the corner position). Not done: one object with several bracket parts and per-series filters.
-- **End plates** (`Style = "End plate"`, command **End plates...**): a flat plate on the outer face of a
-  T-junction, one per side (or per slot with `PerSlot`). Calibrated from the face that lies on the profiles
-  and the face at the end of the stem (`plate_frame`). The bar's outer end sits flush with the through
-  profile's far face (`PlateOffset` adjusts). Needs the two profiles' faces flush on that side (else a
-  note). L corners get a note, `Rule` is ignored. Not done: L-shaped corner plates, plates over a cross of
-  three or more members, and a preview.
 - A bracket kit whose bracket and fasteners are separate App::Parts inside one App::Part looks like a
   library of brackets, so calibrating on it places only the picked App::Part. Putting the kit's bodies
   in one App::Part places the whole kit.
 - The "Inner faces" rule decides per T-junction side and adds no note for a side it leaves out; the
   count in the task panel and the cut list is for the brackets actually placed.
-- Outside this plan: the index row in `docs/plans/README.md` still says Planned (it should say Partly
-  done) and `AI_DISCLOSURE.md` has no row for this work yet; both were left for the merge, so the
-  parallel branches do not conflict there.
 
 ## Problem
 

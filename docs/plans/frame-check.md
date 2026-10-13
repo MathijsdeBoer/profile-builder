@@ -23,7 +23,7 @@ Distances follow the unit schema; small gaps are written with enough digits to m
 
 A review of the first version found five defects, all fixed with tests: the join fix could turn a near-miss corner into a T-junction, a three-way near miss offered a fix that could never work, the duplicate fix could delete the copy a panel uses, collinear bars were reported as overlapping, and small gaps printed as 0 in inch schemas.
 
-Not done: a temporary 3D highlight (selection is used instead), panels whose members are no longer coplanar (they already fail with an error), and a check when inserting on an edge that already has a profile (inserting skips such edges instead).
+Not done: a temporary 3D highlight (selection is used instead), panels whose members are not coplanar (they are now accepted when one plane reaches every member: an On face sheet lies against the outermost member face, an In slot sheet in the slot plane they share, and only a member no common plane reaches is rejected; a sheet that rests on one raised member and floats above the others is not reported), and a check when inserting on an edge that already has a profile (inserting skips such edges instead).
 
 ## Problem
 
