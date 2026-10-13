@@ -266,14 +266,17 @@ class Profile:
         obj.setEditorMode("MiterEnd", 1 if obj.EndJoint else 0)
 
     def onChanged(self, obj, prop):
-        # Undo and Cancel write old values back; reacting to them (resetting the
-        # dimensions, touching joints) would change what they restore.
-        if replaying(obj) or getattr(self, "_restoring", False):
+        if "Restore" in obj.State or getattr(self, "_restoring", False):
             return
-        if prop in ("Series", "Weight") and "ChamberWall" in obj.PropertiesList:
-            apply_series_defaults(obj)
         if prop in ("PathEdge", "StartJoint", "EndJoint"):
-            self._update_editor_modes(obj)
+            self._update_editor_modes(obj)  # only the editor, so also while undoing
+        # Undo and Cancel write old values back; reacting to them (resetting the
+        # dimensions) would change what they restore.
+        if not replaying(obj) and prop in ("Series", "Weight") and "ChamberWall" in obj.PropertiesList:
+            apply_series_defaults(obj)
+        # Marking dependants for recompute writes no property, so it also runs
+        # while undoing: a neighbour recomputed outside the undone transaction
+        # has no old value to restore, and would otherwise stay stale.
         # A new label only changes what the joint shows in its Through list.
         if prop in SECTION_PROPS or prop == "Label":
             from . import joints
