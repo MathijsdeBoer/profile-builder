@@ -2,7 +2,11 @@
 
 Most of this workbench was written by an AI model; see [AI_DISCLOSURE.md](AI_DISCLOSURE.md).
 
-## Unreleased
+## 0.3.0 (2026-11-11)
+
+First public release. Versions 0.1.0 and 0.2.0 below were development milestones; they were never
+tagged or released. The profile dimensions are approximate (see the README, "Accuracy"), so check
+critical dimensions against your supplier's drawing before ordering.
 
 Added:
 - Box frame generator for closed cubes, sized by outside, inside-clear or centre-line dimensions, with

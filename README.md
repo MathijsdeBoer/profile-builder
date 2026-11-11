@@ -8,6 +8,10 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
 > [AI_DISCLOSURE.md](AI_DISCLOSURE.md) for how it was used, the dates, and what it means for the
 > accuracy of the profiles.
 
+> **Status:** 0.3.0 is the first public release. The workbench is young: check the cut list and the
+> profile dimensions against your supplier's data before you order, and please report anything that
+> looks wrong (see [Feedback and contributing](#feedback-and-contributing)).
+
 ## Features
 
 - **Catalog**, grouped by slot system:
@@ -127,14 +131,36 @@ extrusion profiles (2020, 2040, 3030, 4040, 4080, 4545, 8080, ...) as parametric
 
 ## Install
 
-Link or copy this folder into your FreeCAD `Mod` directory, then restart FreeCAD:
+Requires FreeCAD 1.0 or newer (0.21 lacks the topological naming that keeps profiles on the right sketch
+edge). Tested on 1.0 and 1.1, on Windows and Linux. The **Frame stiffness** command also needs numpy and
+scipy, which FreeCAD's own builds include; everything else works without them.
 
-```powershell
-New-Item -ItemType Junction -Path "$env:APPDATA\FreeCAD\v1-1\Mod\ProfileBuilder" -Target (Get-Location)
+**With the Addon Manager** (until the workbench is in FreeCAD's addon list):
+
+1. Open **Edit > Preferences > Addon Manager**.
+2. Under **Custom repositories**, add `https://github.com/MathijsdeBoer/profile-builder` with branch
+   `main`.
+3. Open **Tools > Addon manager**, find **Profile Builder**, install it and restart FreeCAD.
+
+The Addon Manager then also offers updates.
+
+**By hand:** put this repository in the `Mod` folder of FreeCAD's user data folder, as a folder named
+`ProfileBuilder`, and restart FreeCAD. To find that folder, type
+`App.getUserAppDataDir()` in FreeCAD's Python console (**View > Panels > Python console**); `Mod` is
+inside it, for example `%APPDATA%\FreeCAD\v1-1\Mod` on Windows with FreeCAD 1.1. Either clone the
+repository there:
+
+```bash
+git clone https://github.com/MathijsdeBoer/profile-builder.git ProfileBuilder
 ```
 
-Then pick **Profile Builder** from the workbench selector. Requires FreeCAD 1.0 or newer (0.21 lacks the
-topological naming that keeps profiles on the right sketch edge). Tested on 1.0 and 1.1.
+or download the ZIP of a [release](https://github.com/MathijsdeBoer/profile-builder/releases) and
+unpack it there. To work on a clone that lives elsewhere, link it into `Mod` instead (Windows:
+`New-Item -ItemType Junction -Path "$env:APPDATA\FreeCAD\v1-1\Mod\ProfileBuilder" -Target (Get-Location)`).
+
+Then pick **Profile Builder** from the workbench selector. To uninstall, remove it in the Addon Manager or
+delete the `ProfileBuilder` folder. Documents that contain its objects need the workbench installed to
+recompute them.
 
 ## Usage
 
@@ -246,20 +272,45 @@ belts, drives and the floor are not modelled.
 [docs/plans](docs/plans/README.md) holds the planned features, each with the problem it solves, a
 proposal, an implementation approach checked against the code, and the effort.
 
+## Licence
+
+Profile Builder is free software under the GNU Lesser General Public License, version 3 or (at your
+option) any later version: LGPL-3.0-or-later. The LGPL is written as extra permissions on top of the GNU
+GPL, so both texts are included: [COPYING.LESSER](COPYING.LESSER) and [COPYING](COPYING). The licence
+covers the workbench, not the documents, cut lists and drawings you make with it.
+
+## Feedback and contributing
+
+- **Bugs and wrong dimensions:** open an [issue](https://github.com/MathijsdeBoer/profile-builder/issues).
+  Include your FreeCAD version (**Help > About FreeCAD > Copy to clipboard**), what you did, and if you
+  can a small `.FCStd` file that shows the problem. For a wrong profile dimension, name the supplier and
+  link its drawing.
+- **Pull requests** are welcome. Run the tests below, and keep user-facing strings translatable (see
+  [Translating](#translating)). Please say in the pull request whether you used AI tools, so
+  [AI_DISCLOSURE.md](AI_DISCLOSURE.md) stays accurate.
+- Planned features are in [docs/plans](docs/plans/README.md); comments on them are welcome in an issue.
+
 ## Development
 
-- `python -m pytest tests`: catalog, stock and piece-identity tests, no FreeCAD needed
+Run the FreeCAD scripts from the repository root, with FreeCAD's console `freecadcmd`
+(`FreeCADCmd.exe` or `freecadcmd.exe` in FreeCAD's `bin` folder on Windows):
+
+- `uvx pytest tests` (or `python -m pytest tests`): catalog, stock, piece-identity, fabrication,
+  package and translation tests, no FreeCAD needed
 - `uvx --with numpy --with scipy pytest tests`: also runs the frame solver tests (skipped without numpy/scipy)
-- `freecadcmd tests/freecad_smoke.py`: geometry, edges, miters, save/reload and cut list (run it from the repo root)
+- `freecadcmd tests/freecad_smoke.py`: geometry, edges, miters, joints, box frames, save/reload of older
+  documents and the cut list
 - `freecadcmd tests/freecad_stiffness.py`: the frame stiffness estimate against closed forms, baseline and units
-- `freecadcmd tests/freecad_linear.py`: carriages, clear run and stroke (also from the repo root)
-- `freecadcmd tests/freecad_brackets.py`: bracket calibration and placement, on the 400 mm cube and more
-- `freecadcmd tests/freecad_panels.py`: panel fabrication, panel fit and stable piece marks
+- `freecadcmd tests/freecad_linear.py`: carriages, clear run and stroke
+- `freecadcmd tests/freecad_brackets.py`: bracket calibration and placement, end plates and claims
+- `freecadcmd tests/freecad_panels.py`: panel layout, fabrication, panel fit and stable piece marks
 - `freecadcmd tests/freecad_check.py`: the frame check
-- `freecadcmd tests/freecad_slot_alignment.py`: profile slot alignment by picked slots and at butt joints
+- `freecadcmd tests/freecad_slot_alignment.py`: Align slots, through the same calls as the command
 - `freecadcmd tests/freecad_context_tasks.py`: which command groups the Tasks tab offers for a selection
-- GitHub Actions runs all of these on every push, on FreeCAD 1.0 and 1.1 (`.github/workflows/tests.yml`).
-  The FreeCAD scripts exit non-zero when a check fails.
+- `freecadcmd tools/make_icons.py`: regenerates the toolbar icons from the real geometry
+- GitHub Actions runs all the tests on every push, on FreeCAD 1.0 and 1.1 (`.github/workflows/tests.yml`).
+  The FreeCAD scripts print `ok`/`FAIL` lines, end with `N failure(s)` and exit non-zero when a check
+  fails.
 
 ### Translating
 
@@ -272,5 +323,4 @@ To add a language, run it with `--add` and FreeCAD's code for the language (for 
 and compile it with `lrelease` (or `pyside6-lrelease`) into a `.qm` file next to it. FreeCAD picks it up
 when it runs in that language. Values that are stored in documents, such as the series, mount and joint
 type names, stay in English on purpose. Messages in the report view and the cut list are not translated
-yet.
-- `freecadcmd tools/make_icons.py`: regenerates the toolbar icons from the real geometry
+yet. Translations are welcome as pull requests.
