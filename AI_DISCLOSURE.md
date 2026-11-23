@@ -45,6 +45,7 @@ which spread work over several subagents of the same model.
 
 | 2026-10-05 | First stage of the box frame generator: a stable parametric skeleton, a live transactional cube-generation panel with outside/inside-clear/centre-line sizing, mixed post and rail sections, and FreeCAD smoke coverage. Added carriage warnings to the cut-list report. | |
 | 2026-10-05 | Slot alignment tool: solves profile spin and local section offsets against adjoining profiles, supports reference selection by picking slot-floor faces, and has FreeCAD tests for 4040 rails and 2060 posts. Keeps joints current when an aligned profile is deleted. | |
+| 2026-11-23 | Brackets: `SlotsPerBracket` (one bracket over several neighbouring slots, such as a double bracket on a 4080) and an "Outer faces" rule, asked for by the maintainer for an H-shaped robot frame. Integer fields in the simple task panels. Tested with new checks in `tests/freecad_brackets.py`. | |
 
 ## Who did what
 
