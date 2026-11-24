@@ -5,11 +5,10 @@ import math
 
 import FreeCAD as App
 import FreeCADGui as Gui
-import Part
 from PySide import QtCore, QtWidgets
 
 from . import box_frame, cutlist, feature, profiles, skeleton
-from .taskpanel import PARAMS
+from .taskpanel import PARAMS, _set
 
 translate = App.Qt.translate
 
@@ -18,12 +17,22 @@ def _length_text(value):
     return App.Units.Quantity(value, App.Units.Length).UserString
 
 
-def _parse_length(text):
-    quantity = App.Units.Quantity(text.strip().replace(",", "."))
+def _parse_length(text, shown):
+    """Length in mm from text such as '600 mm', '2 ft' or 1' 11" + 5/8".
+
+    A bare number is in the unit the field shows for ``shown`` mm. That is not
+    always the unit FreeCAD picks for 1 mm: US customary shows feet, but thou for 1 mm.
+    """
+    text = text.strip().replace(",", ".")
+    try:
+        quantity = App.Units.Quantity(text)
+    except (ValueError, ArithmeticError):
+        # Building US shows 1' 11" + 5/8", which the parser only reads without the plus.
+        quantity = App.Units.Quantity(text.replace("+", " "))
     if quantity.Unit == App.Units.Quantity("1 mm").Unit:
         return quantity.Value
     if quantity.Unit == App.Units.Unit():
-        _text, factor, _name = App.Units.Quantity("1 mm").getUserPreferred()
+        _text, factor, _name = App.Units.Quantity(abs(shown) or 1.0, App.Units.Length).getUserPreferred()
         return quantity.Value * factor
     raise ValueError("Enter a length")
 
@@ -69,16 +78,6 @@ def _saved_size(params, series, columns_key, rows_key):
     return columns, rows
 
 
-def _set(obj, name, value):
-    current = getattr(obj, name)
-    if hasattr(current, "Value"):
-        if abs(current.Value - value) < 1e-9:
-            return
-    elif current == value:
-        return
-    setattr(obj, name, value)
-
-
 class BoxFrameTaskPanel:
     def __init__(self):
         self.doc = App.ActiveDocument or App.newDocument()
@@ -86,7 +85,7 @@ class BoxFrameTaskPanel:
         self._timer.setSingleShot(True)
         self._timer.setInterval(150)
         self._timer.timeout.connect(self.apply)
-        self._updating = False
+        self._lengths = {}  # field: (text it was filled with, exact value in mm)
 
         self.defaults = self._load_defaults()
         self.doc.openTransaction("Create box frame")
@@ -117,6 +116,10 @@ class BoxFrameTaskPanel:
         rail_series = series("BoxRailSeries")
         post_cols, post_rows = _saved_size(params, post_series, "BoxPostColumns", "BoxPostRows")
         rail_cols, rail_rows = _saved_size(params, rail_series, "BoxRailColumns", "BoxRailRows")
+        post_cell, rail_cell = profiles.SERIES[post_series].cell, profiles.SERIES[rail_series].cell
+        if skeleton.rails_collide(post_cols * post_cell, post_rows * post_cell, rail_cols * rail_cell):
+            # Saved by a version that allowed it: start with rails like the posts instead.
+            rail_series, rail_cols, rail_rows = post_series, post_cols, post_rows
         default_weight = params.GetString("Weight", "Standard")
         if default_weight not in profiles.WEIGHTS:
             default_weight = "Standard"
@@ -154,9 +157,9 @@ class BoxFrameTaskPanel:
         form.setWindowTitle(translate("ProfileBuilder", "Box frame"))
         layout = QtWidgets.QFormLayout(form)
 
-        self.width = QtWidgets.QLineEdit(_length_text(self.defaults["width"]))
-        self.depth = QtWidgets.QLineEdit(_length_text(self.defaults["depth"]))
-        self.height = QtWidgets.QLineEdit(_length_text(self.defaults["height"]))
+        self.width = self._length_field(self.defaults["width"])
+        self.depth = self._length_field(self.defaults["depth"])
+        self.height = self._length_field(self.defaults["height"])
         layout.addRow(translate("ProfileBuilder", "Width"), self.width)
         layout.addRow(translate("ProfileBuilder", "Depth"), self.depth)
         layout.addRow(translate("ProfileBuilder", "Height"), self.height)
@@ -213,6 +216,21 @@ class BoxFrameTaskPanel:
         self.post_series.currentIndexChanged.connect(self._post_series_changed)
         self.rail_series.currentIndexChanged.connect(self._rail_series_changed)
 
+    def _length_field(self, value):
+        widget = QtWidgets.QLineEdit(_length_text(value))
+        self._lengths[widget] = (widget.text(), value)
+        return widget
+
+    def _length(self, widget):
+        """A field's length in mm: the exact value it was filled with until its text is changed.
+
+        The text is rounded, and in some schemas (Building US) the parser cannot read it back.
+        """
+        text, value = self._lengths[widget]
+        if widget.text() == text:
+            return value
+        return _parse_length(widget.text(), value)
+
     def _fill_size(self, widget, series, previous):
         widget.blockSignals(True)
         widget.clear()
@@ -231,8 +249,7 @@ class BoxFrameTaskPanel:
         self.changed()
 
     def changed(self, *_args):
-        if not self._updating:
-            self._timer.start()
+        self._timer.start()
 
     def _update_profiles(self, members, series, cols, rows, weight):
         for member in members:
@@ -244,8 +261,7 @@ class BoxFrameTaskPanel:
 
     def apply(self):
         try:
-            dimensions = tuple(_parse_length(widget.text()) for widget in
-                               (self.width, self.depth, self.height))
+            dimensions = tuple(self._length(widget) for widget in (self.width, self.depth, self.height))
         except (ValueError, ArithmeticError):
             self.info.setText("<span style='color:#c33'>" + html.escape(
                 translate("ProfileBuilder", "Enter a valid length for width, depth and height.")) + "</span>")
@@ -255,20 +271,25 @@ class BoxFrameTaskPanel:
                 translate("ProfileBuilder", "Width, depth and height must be positive.")) + "</span>")
             return False
 
-        _set(self.skeleton, "Width", dimensions[0])
-        _set(self.skeleton, "Depth", dimensions[1])
-        _set(self.skeleton, "Height", dimensions[2])
-        _set(self.skeleton, "SizeMode", self.size_mode.currentData())
-
         post_cols, post_rows = (int(value) for value in self.post_size.currentData().split("x"))
         rail_cols, rail_rows = (int(value) for value in self.rail_size.currentData().split("x"))
         post_series, rail_series = self.post_series.currentData(), self.rail_series.currentData()
         post_weight, rail_weight = self.post_weight.currentData(), self.rail_weight.currentData()
-        self._update_profiles(self.posts, post_series, post_cols, post_rows, post_weight)
-        self._update_profiles(self.rails, rail_series, rail_cols, rail_rows, rail_weight)
-
         post_cell = profiles.SERIES[post_series].cell
         rail_cell = profiles.SERIES[rail_series].cell
+        if skeleton.rails_collide(post_cols * post_cell, post_rows * post_cell, rail_cols * rail_cell):
+            self.info.setText("<span style='color:#c33'>" + html.escape(translate(
+                "ProfileBuilder",
+                "Rails wider than the posts in both directions collide at the corners. Choose posts at least as wide as the rails in one direction, or narrower rails.")) +
+                "</span>")
+            return False
+
+        _set(self.skeleton, "Width", dimensions[0])
+        _set(self.skeleton, "Depth", dimensions[1])
+        _set(self.skeleton, "Height", dimensions[2])
+        _set(self.skeleton, "SizeMode", self.size_mode.currentData())
+        self._update_profiles(self.posts, post_series, post_cols, post_rows, post_weight)
+        self._update_profiles(self.rails, rail_series, rail_cols, rail_rows, rail_weight)
         _set(self.skeleton, "FallbackPostWidth", post_cols * post_cell)
         _set(self.skeleton, "FallbackPostDepth", post_rows * post_cell)
         _set(self.skeleton, "FallbackRailWidth", rail_cols * rail_cell)
@@ -289,25 +310,18 @@ class BoxFrameTaskPanel:
                     f"{member.Label}: {problem}") + "</span>")
                 return False
 
-        box = Part.makeCompound([member.Shape for member in self.members]).BoundBox
         mode = self.skeleton.SizeMode
-        if mode == "Outside":
-            measured = (box.XLength, box.YLength, box.ZLength)
-            label = translate("ProfileBuilder", "Outside size")
-        elif mode == "Inside clear":
-            inset_x = max(self.skeleton.PostWidth.Value, self.skeleton.RailWidth.Value)
-            inset_y = max(self.skeleton.PostDepth.Value, self.skeleton.RailWidth.Value)
-            measured = (box.XLength - 2 * inset_x, box.YLength - 2 * inset_y,
-                        box.ZLength - 2 * self.skeleton.RailHeight.Value)
-            label = translate("ProfileBuilder", "Inside clear size")
-        else:
-            lines = self.skeleton.Shape.BoundBox
-            measured = (lines.XLength, lines.YLength, lines.ZLength)
-            label = translate("ProfileBuilder", "Centre-line size")
+        label = {
+            "Outside": translate("ProfileBuilder", "Outside size"),
+            "Inside clear": translate("ProfileBuilder", "Inside clear size"),
+        }.get(mode, translate("ProfileBuilder", "Centre-line size"))
+        measured = skeleton.measured_size(self.skeleton)
         requested = (self.skeleton.Width.Value, self.skeleton.Depth.Value, self.skeleton.Height.Value)
-        actual_text = " × ".join(_length_text(value) for value in measured)
-        lines = [translate("ProfileBuilder", "{label}: {dimensions}").format(
-            label=label, dimensions=actual_text)]
+        lines = []
+        if measured is not None:
+            actual_text = " × ".join(_length_text(value) for value in measured)
+            lines.append(translate("ProfileBuilder", "{label}: {dimensions}").format(
+                label=label, dimensions=actual_text))
 
         groups = []
         names = {member.Name for member in self.members}
@@ -319,7 +333,8 @@ class BoxFrameTaskPanel:
                     count=count, length=length, product=key[0]))
         lines.append(translate("ProfileBuilder", "Cut lengths: {groups}").format(
             groups=", ".join(groups)))
-        if any(abs(actual - wanted) > 0.01 for actual, wanted in zip(measured, requested)):
+        if measured is not None and any(abs(actual - wanted) > 0.01
+                                        for actual, wanted in zip(measured, requested)):
             lines.append("<span style='color:#c60'>" + html.escape(translate(
                 "ProfileBuilder",
                 "Measured size differs from the requested size. Check profile anchors, spins and joint settings.")) +

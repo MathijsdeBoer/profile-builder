@@ -28,8 +28,11 @@ def make_box(doc, width=600.0, depth=600.0, height=700.0, size_mode="Outside",
     rail_cell = profiles.SERIES[rail_series].cell
     post_width, post_depth = post_cols * post_cell, post_rows * post_cell
     rail_width, rail_height = rail_cols * rail_cell, rail_rows * rail_cell
-    skeleton_module.centerline_spans(width, depth, height, size_mode,
-                                     post_width, post_depth, rail_width, rail_height)
+    if skeleton_module.rails_collide(post_width, post_depth, rail_width):
+        raise ValueError("Rails wider than the posts in both directions collide at the corners: "
+                         "use posts at least as wide as the rails in one direction, or narrower rails")
+    skeleton_module.centerline_spans(width, depth, height, size_mode, skeleton_module.uniform_sides(
+        post_width, post_depth, rail_width, rail_height))
 
     skeleton = skeleton_module.make_skeleton(
         doc, width, depth, height, size_mode,

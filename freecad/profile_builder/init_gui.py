@@ -33,9 +33,9 @@ class ProfileBuilderWorkbench(Gui.Workbench):
                         "ProfileBuilder_CheckFrame", "ProfileBuilder_FrameStiffness"]
         self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Profile Builder"),
                            main + [group for _key, group, _names in groups])
-        self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Joint & Alignment"), joints_tools)
+        self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Joints and Alignment"), joints_tools)
         self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Component Tools"), component_tools)
-        self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Output & Analysis"), output_tools)
+        self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Output and Analysis"), output_tools)
         menu = QT_TRANSLATE_NOOP("Workbench", "Profiles")
         self.appendMenu(menu, main)
         for key, _group, names in groups:

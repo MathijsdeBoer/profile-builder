@@ -37,9 +37,16 @@ package through the working directory:
   because it builds every catalog variant.
 - Each feature has its own script in the same style: `tests/freecad_stiffness.py`,
   `tests/freecad_linear.py`, `tests/freecad_brackets.py`, `tests/freecad_panels.py` (panel fabrication,
-  panel fit and stable piece marks) and `tests/freecad_check.py` (the frame check). The expected
-  tracebacks are "Invalid profile dimensions" (stiffness), "no bracket part" (brackets) and "must lie
-  parallel to the panel" (panels).
+  panel fit and stable piece marks), `tests/freecad_check.py` (the frame check),
+  `tests/freecad_slot_alignment.py` and `tests/freecad_context_tasks.py` (the Tasks tab watchers'
+  selection summary). Deliberate error cases print tracebacks:
+  - smoke: "Outside dimensions must exceed the section sizes" (a failed box-frame skeleton), "Panel is
+    too thick", "Invalid profile dimensions" and a path edge that "no longer exists";
+  - panels: "must lie parallel to the panel", "The cutouts remove the whole sheet", "does not lie in the
+    plane of the panel" and "The panel plane misses the slots of right post, and no PlaneOffset passes
+    through a slot of every profile";
+  - stiffness and check: "Invalid profile dimensions"; brackets: "no bracket part"; linear: three
+    deliberate carriage and path errors.
 - Every FreeCAD script ends with `os._exit(1 if failures else 0)`. `freecadcmd` exits 0 when a script
   raises, so CI (`.github/workflows/tests.yml`, FreeCAD 1.0 and 1.1 AppImages) also requires the final
   `0 failure(s)` line. Keep both when adding a script, and add it to the workflow.
@@ -55,7 +62,6 @@ package through the working directory:
 - `freecadcmd` on Windows prints to a cp1252 console: a check message with a character outside it (₹, −)
   raises in `print` and stops the script. Wrap such values in `ascii()`.
 - `freecadcmd` often prints each output line twice; filter with `awk '!seen[$0]++'`.
-- A traceback about "Panel is too thick" is expected: that is a deliberate error case.
 - The file name must not match `test_*.py` / `*_test.py`, or pytest will try to collect it.
 
 To use a source tree without installing it, put it first on FreeCAD's namespace package, after
@@ -113,7 +119,14 @@ The modules form layers, and the lower ones must stay importable without the GUI
     profiles and joints and solves it at a loose and a stiff joint bound.
   - **Carriages** (`linear.py`, GUI in `linear_ui.py`).
   - **Brackets** (`brackets.py`, GUI in `brackets_ui.py`): a link array of the user's part. `execute`
-    only writes `ElementCount` and `PlacementList`, and never creates objects.
+    writes only the object's own outputs (`ElementCount`, `PlacementList`, `Joints` for AllJoints,
+    `FrameJoints`, `Members`, `Corners` and the notes), and never creates objects.
+  - **Box frame** (`skeleton.py`, `box_frame.py`, GUI in `box_frame_ui.py`): a Part::FeaturePython
+    skeleton of 12 lines that the generated profiles run on.
+  - **Align slots** (`slot_alignment.py`, command in `commands.py`): slides the first picked profile's
+    section (`SectionOffsetX`/`SectionOffsetY`) so its picked slot lines up with the second pick.
+- **Tasks tab (`context_tasks.py`)**: selection-aware command groups. The selection summary is pure
+  enough to test in the console (`tests/freecad_context_tasks.py`); only the watcher classes need the GUI.
 - **Frame check (`check.py`, GUI in `check_ui.py`)**: independent checks that return `Finding`
   records (severity, text, object names, optional fix). They never change the document; only
   `apply_fix` does, for deleting duplicates and joining ends. Overlaps are tested on each profile's
@@ -152,7 +165,11 @@ The modules form layers, and the lower ones must stay importable without the GUI
 - **Anchor and placement**:
   - `Shape.translate()` only sets a top-level location, and `Profile.execute` then overwrites it by
     restoring `obj.Placement`. So the anchor offset must be baked into the section face before
-    extrusion (`make_section(..., anchor)`), never applied to the finished solid.
+    extrusion (`make_section(..., anchor)`), never applied to the finished solid. The section offset
+    from Align slots is baked into the copied face the same way.
+  - `feature.member_frame` includes the section offset, so joints, panels, brackets, carriages, the
+    stiffness model and the check envelopes all follow it. Anything that assumes a section is centred
+    on its path line (the box-frame skeleton's sizes) does not.
   - Profiles on a `PathEdge` compute their own Placement and Length in `execute`.
     `Length`/`Placement` (and `MiterStart`/`MiterEnd` when a joint controls that end) are then
     read-only outputs.
@@ -181,9 +198,13 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - All of this runs under a `_restoring` guard. Without the guard, a newly added `Weight` property
     would trigger `apply_series_defaults()` and wipe the user's customised dimensions.
   - Changing `Series` or `Weight` intentionally resets the dimensions.
-  - `onChanged` handlers must return early while `feature.replaying(obj)` is true. Undo and Cancel
-    (`abortTransaction`) write old values back with `Document.Transacting` set, and reacting to them
-    (resetting dimensions, switching a joint to Manual) corrupts what they restore.
+  - `onChanged` handlers must not react to replayed values while `feature.replaying(obj)` is true. Undo
+    and Cancel (`abortTransaction`) write old values back with `Document.Transacting` set, and writing
+    properties in reaction (resetting dimensions, switching a joint to Manual) corrupts what they restore.
+  - Marking dependants for recompute (`touch_joints_of`, `touch_skeleton_of`, `touch_carriages`,
+    `member_moved`) writes nothing, so `Profile.onChanged` still does it while replaying: neighbours that
+    were recomputed outside the undone transaction have no old value to restore and would stay stale.
+    Only a document being loaded (`"Restore" in obj.State`, `_restoring`) skips everything.
   - `tests/fixtures/legacy_<commit>.FCStd` are documents saved by older versions (8733122, the first,
     and ead3f7d). The smoke test opens each and compares with the stored results. Regenerate them only
     from a worktree of that commit with `make_legacy_fixture.py`, which refuses to run on current code.
@@ -213,9 +234,17 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - `SourceFrame` is in the part's own coordinates (`LinkTransform` is False, so the part's own
     Placement is ignored).
   - The type name "Fitting" is reserved for the planned feet and castors feature.
-  - `joint_spots` returns `(placement, first, second, (corner key, label))`. Corner keys use object names,
-    never labels; `SkippedCorners` holds keys, and a skipped corner stays listed in `Corners`. The End plate
-    style has its own frame (`plate_frame`) and property list (`fields(obj)`), and only T-junctions.
+  - `joint_spots` returns `(spots, notes)`, each spot `(placement, first, second, (corner key, label))`.
+    Corner keys use object names, never labels; `SkippedCorners` holds keys, and a skipped corner stays
+    listed in `Corners`.
+  - The End plate style has its own frame (`plate_frame`) and property list (`fields(obj)`), and only
+    T-junctions. It ignores `SlotOffset` and `SwapLegs`, which its panel hides. A side gets no plate where
+    another profile ends on the same face, or on the far face, of the one running through (a cross, a 3D T).
+  - Claims between Brackets objects (`SkipClaimed`) are decided from the joints themselves (`_claims`:
+    butt joints, and only T-junctions for end plates), never from another object's computed output:
+    nothing links the two, so either may recompute first.
+  - A `Joints` list that AllJoints filled (`JointsComputed`) claims nothing until the user edits it. Removing
+    a deleted joint from the list is no edit; `onBeforeChange` records the list so `_edited` can tell.
 - **Piece marks**:
   - The mark key is the `collect()` key as JSON. Changing that key (the product key, the rounding, the
     cut description) gives every group in existing documents a new mark.
@@ -238,6 +267,30 @@ The modules form layers, and the lower ones must stay importable without the GUI
   - Holes, rounding and tolerance default to 0 for panels in opened older documents (`CutTolerance` is
     0.2 mm only for new panels), so their shapes and fit results do not change.
   - DXF R12 has no unit field: the unit goes in the file name and the MARK text. Keep DXF text ASCII.
+- **Panel plane**:
+  - Members need not be centred on one plane (mixed sizes, section offsets). PlaneOffset 0 is the
+    middle of the band along the normal that all sections share, so the order of `Profiles` never
+    matters. Only when every centre lies exactly (1e-6 mm) on the first profile's plane is that plane
+    kept, so documents built on one flat sketch stay bit-identical.
+  - An On face sheet lies on the outermost member face. A member whose face is more than
+    `panels.STANDOFF` (0.5 mm) below the sheet gives a fit warning (`standoff_warnings`) and gets no
+    hole line.
+  - The In slot check runs after all members are known (`_check_plane`) and suggests a PlaneOffset that
+    passes through a slot of every member.
+- **Box frame**:
+  - Profiles run on the skeleton's lines through `PathEdge`. The skeleton reads their section sizes
+    through its `InList` and never links to them; profiles touch it (`touch_skeleton_of`) when a section
+    property changes.
+  - Sizes are kept per side (each side's posts and rails). Section offsets are not taken into account;
+    the frame check warns when the measured size differs from the requested one.
+  - The task panel keeps the exact mm value of each length field and parses a field only once its text
+    has changed (`_length`), because the text is rounded and some unit schemas (Building US) cannot
+    parse their own output.
+- **Tasks tab**: the watchers read `Gui.Selection.getSelectionEx("", 0)` (unresolved, so a face of a
+  placed bracket keeps its Brackets object) and resolve it with `brackets.resolve`.
+  `current_selection()` makes the summary once per selection and shares it between the watchers; the
+  cache key holds each profile's `Shape.hashCode()`, so a recompute invalidates it. Without the cache,
+  every watcher re-summarised the selection on each click.
 - **Panel materials**: `panels.material_data` returns None for unknown or ambiguous names ("glass-clear
   PETG"). `Expansion == 0` means "not known", and the thermal check is then skipped rather than guessed.
 - **Product keys**:

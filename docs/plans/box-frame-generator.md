@@ -31,8 +31,18 @@ Second stage: more generators (guard fence with N bays, ladder/conveyor frame wi
   top edges 5-8, posts 9-12.
 - `Box frame...` creates a closed cube, with outside, inside-clear and centre-line sizing, separate
   post and rail series/sizes, vertical butt joints and a live cut-length summary.
-- The skeleton derives its insets from the attached profiles, so changing a section keeps the requested
-  outside or inside-clear dimensions. Profile size changes touch the skeleton without adding a link cycle.
+- The skeleton derives its insets from the attached profiles, per side, so changing a section (also on one
+  side only) keeps the requested outside or inside-clear dimensions. Profile size changes touch the
+  skeleton without adding a link cycle.
+- A section offset (Align slots), an anchor, a spin or a changed joint rule can still change the size. The
+  Check frame command compares `skeleton.measured_size()` with the requested size and warns when they
+  differ by more than 0.01 mm.
+- Rails wider than the posts in both directions would collide at the corners (`skeleton.rails_collide()`),
+  so `make_box` and the panel refuse them before creating anything.
+- A skeleton with an error puts its profiles in the cut list's error block (`feature.problem()` checks the
+  path object and the joint sources).
+- The panel keeps the exact value of each size field until its text is edited, and reads a bare number in
+  the unit the field shows, so sizes do not drift in imperial unit schemas.
 - The smoke test now builds the centre-line cube through the generator and checks the outside-sized
   cube at 2020 and 3030 post sizes.
 

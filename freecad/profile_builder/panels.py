@@ -95,31 +95,60 @@ def _face_towards(frame, w):
     return "Top" if wy > 0 else "Bottom"
 
 
-def _check_slot(obj, frame, face, n, plane_offset, thickness, panel_offset=None):
-    """Check that the panel plane, ``plane_offset`` from this member's section centre, hits one of its slots.
-
-    ``panel_offset`` is the panel's own PlaneOffset, the value to suggest when the plane misses.
-    """
-    if panel_offset is None:
-        panel_offset = plane_offset
+def _check_slot(obj, face, thickness):
+    """Check that this member has an open slot towards the panel that the sheet fits in."""
     if getattr(obj, f"Closed{face}"):
         raise ValueError(f"{obj.Label} has no slot on the face towards the panel ({face})")
     if thickness > obj.SlotOpening.Value - 0.2:
         raise ValueError(f"Panel is too thick for the {obj.SlotOpening.Value:g} mm slot of {obj.Label}")
-    # Slots run along the face; find where the panel plane crosses it.
+
+
+def _slot_planes(obj, frame, face, n):
+    """(distances along ``n`` from this member's section centre to its slots on ``face``, tolerance).
+
+    The plane may miss a slot centre by 0.5 mm, measured across the face.
+    """
+    # Slots run along the face; the panel plane crosses it at one of them.
     cell = obj.CellSize.Value
     x0, x1, y0, y1 = frame.rect
     if face in ("Left", "Right"):
         axis, start, count, centre = frame.y, y0, obj.Rows, (y0 + y1) / 2
     else:
         axis, start, count, centre = frame.x, x0, obj.Columns, (x0 + x1) / 2
-    position = centre + plane_offset * n.dot(axis)
-    slots = [start + (k + 0.5) * cell for k in range(count)]
-    nearest = min(slots, key=lambda s: abs(s - position))
-    if abs(nearest - position) > 0.5:
-        shift = (nearest - position) * n.dot(axis)
-        raise ValueError(f"The panel plane misses the slots of {obj.Label}; "
-                         f"try PlaneOffset {panel_offset + shift:+g} mm")
+    k = n.dot(axis)
+    if abs(k) < 1e-6:
+        return [], 0.5
+    return [(start + (i + 0.5) * cell - centre) / k for i in range(count)], 0.5 / abs(k)
+
+
+def _check_plane(plane_offset, fits):
+    """Check that the panel plane passes through a slot of every member.
+
+    ``fits`` holds, per member, the PlaneOffset values that put the plane
+    through one of its slots and their tolerance. When the plane misses, the
+    suggestion is the nearest value that suits every member, not just the one
+    that is missed.
+    """
+    def hits(value, planes, tolerance):
+        return any(abs(p - value) <= tolerance for p in planes)
+
+    missed = next((m for m, planes, tol in fits if not hits(plane_offset, planes, tol)), None)
+    if missed is None:
+        return
+    good = [p for _m, planes, _t in fits for p in planes if all(hits(p, *other[1:]) for other in fits)]
+    if not good:
+        raise ValueError(f"The panel plane misses the slots of {missed.Label}, and no PlaneOffset "
+                         "passes through a slot of every profile")
+    # Rounded first: the values carry float noise of about 1e-14, which would otherwise pick between
+    # two equally near values instead of the tie-break (the lower one).
+    best = min(good, key=lambda p: (round(abs(p - plane_offset), 6), round(p, 6)))
+    best = round(best, 6) + 0.0  # no "-0"
+    raise ValueError(f"The panel plane misses the slots of {missed.Label}; try PlaneOffset {best:+g} mm")
+
+
+def _half(frame, d):
+    """How far the section reaches from its own centre in world direction d."""
+    return frame.support(d) - frame.center_offset().dot(d)
 
 
 def _intersect(p1, d1, p2, d2):
@@ -136,12 +165,15 @@ class Layout:
     ``corners`` are 2D points (counter-clockwise) in the in-plane basis
     (e1, e2) from ``origin``; the sheet starts ``lift`` along ``n`` from the
     frame plane. ``inward`` holds, per member, the in-plane direction from the
-    member towards the opening.
+    member towards the opening. ``standoff`` holds, per member, how far an
+    on-face sheet lies off that member's face (0 for the outermost faces and
+    for In slot panels).
     """
 
-    def __init__(self, members, frames, n, origin, e1, e2, corners, lift, inward):
+    def __init__(self, members, frames, n, origin, e1, e2, corners, lift, inward, standoff=None):
         self.members, self.frames, self.n, self.origin = members, frames, n, origin
         self.e1, self.e2, self.corners, self.lift, self.inward = e1, e2, corners, lift, inward
+        self.standoff = standoff or [0.0] * len(members)
 
     def to2d(self, p):
         d = p - self.origin
@@ -169,13 +201,30 @@ def layout(obj):
             break
     if n is None:
         raise ValueError("The profiles around a panel cannot all be parallel")
-    origin = segments[0][0]
-    for m, f, (a, _b) in zip(members, frames, segments):
-        # Members of different sizes or with a section offset need not be centred on one plane: the
-        # section only has to reach the panel plane (the first member's centre plane).
-        reach = f.support(n) - f.center_offset().dot(n)
-        if abs(f.z.dot(n)) > 1e-3 or abs((a - origin).dot(n)) > reach + 0.5:
+    for m, f in zip(members, frames):
+        if abs(f.z.dot(n)) > 1e-3:
             raise ValueError(f"{m.Label} does not lie in the plane of the panel")
+    origin = segments[0][0]
+    # Members of different sizes or with a section offset (Align slots) need not be centred on one plane,
+    # but one plane must reach every section. Each section spans an interval along n; the reference plane
+    # (PlaneOffset 0) is the middle of the part they all share, so it does not depend on the order of
+    # Profiles. When every centre lies exactly on the first member's plane, as with one flat sketch and no
+    # section offsets (all older documents), that plane is kept bit for bit. Nearly coplanar centres take the
+    # band rule too: deciding that against the first member alone made the result depend on the order.
+    centres = [(a - origin).dot(n) for a, _b in segments]
+    heights = [0.0] * len(centres)  # of each section centre above the reference plane
+    if any(abs(c) > 1e-6 for c in centres):
+        spans = [(c - _half(f, -n) - 0.5, c + _half(f, n) + 0.5) for c, f in zip(centres, frames)]
+        lo, hi = max(s[0] for s in spans), min(s[1] for s in spans)
+        if lo > hi + 1e-6:
+            # Blame the members outside the plane that reaches the most sections.
+            def reached(p):
+                return [lo_ - 1e-9 <= p <= hi_ + 1e-9 for lo_, hi_ in spans]
+            best = max((s[0] for s in spans), key=lambda p: (sum(reached(p)), -abs(p)))
+            outlier = next(m for m, ok in zip(members, reached(best)) if not ok)
+            raise ValueError(f"{outlier.Label} does not lie in the plane of the panel")
+        origin = origin + n * ((lo + hi) / 2)
+        heights = [c - (lo + hi) / 2 for c in centres]
 
     e1 = frames[0].z
     e2 = n.cross(e1)
@@ -188,16 +237,19 @@ def layout(obj):
     centroid = sum(mids, V()) * (1.0 / len(mids))
     lines = []
     inward = []
+    fits = []  # In slot: (member, the PlaneOffset values that hit one of its slots, tolerance)
     for m, f, (a, _b), mid in zip(members, frames, segments, mids):
-        # Where the panel plane lies relative to this member's own section centre.
-        to_plane = obj.PlaneOffset.Value + (origin - a).dot(n)
         w = n.cross(f.z)
         if (centroid - mid).dot(w) < 0:
             w = -w
         inward.append(w)
         inner = f.support(w) - f.center_offset().dot(w)
         if obj.Mount == "In slot":
-            _check_slot(m, f, _face_towards(f, w), n, to_plane, obj.Thickness.Value, obj.PlaneOffset.Value)
+            face = _face_towards(f, w)
+            _check_slot(m, face, obj.Thickness.Value)
+            # The slot planes are measured from this member's own section centre, not the reference plane.
+            planes, tolerance = _slot_planes(m, f, face, n)
+            fits.append((m, [p - (origin - a).dot(n) for p in planes], tolerance))
             depth = obj.InsertDepth.Value or m.SlotDepth.Value
             offset = inner - depth + obj.Clearance.Value
         else:
@@ -208,6 +260,8 @@ def layout(obj):
         c2 = to2d(centroid)
         m2 = to2d(mid)
         lines.append((math.atan2(m2[1] - c2[1], m2[0] - c2[0]), p, d))
+    if obj.Mount == "In slot":
+        _check_plane(obj.PlaneOffset.Value, fits)
     lines.sort(key=lambda line: line[0])
 
     corners = []
@@ -220,13 +274,31 @@ def layout(obj):
     if fabrication.signed_area(corners) < 0:
         corners.reverse()
 
+    standoff = None
     if obj.Mount == "In slot":
         lift = obj.PlaneOffset.Value - obj.Thickness.Value / 2
     else:
         sign = 1 if obj.Side == "Front" else -1
-        reach = max(f.support(n * sign) - f.center_offset().dot(n * sign) for f in frames)
+        # The outermost face on this side, measured from the reference plane: members need not be centred on it.
+        faces = [h * sign + _half(f, n * sign) for f, h in zip(frames, heights)]
+        reach = max(faces)
         lift = sign * reach + obj.PlaneOffset.Value - (0 if sign > 0 else obj.Thickness.Value)
-    return Layout(members, frames, n, origin, e1, e2, corners, lift, inward)
+        standoff = [reach - face for face in faces]
+    return Layout(members, frames, n, origin, e1, e2, corners, lift, inward, standoff)
+
+
+# An on-face sheet further than this off a member's face does not rest on it: screws would pull it down.
+STANDOFF = 0.5
+
+
+def standoff_warnings(obj, lay=None):
+    """Warnings for the members an on-face sheet does not rest on, because other members stick out further."""
+    if obj.Mount != "On face":
+        return []
+    lay = lay or layout(obj)
+    return [f"{obj.Label}: the sheet lies {gap:.2f} mm off the face of {m.Label}, because other profiles stick out "
+            "further; line up the profile faces or put spacers under the sheet"
+            for m, gap in zip(lay.members, lay.standoff) if gap > STANDOFF]
 
 
 def panel_outline(obj):
@@ -250,7 +322,10 @@ def slot_lines(obj, lay):
     """
     sign = 1 if obj.Side == "Front" else -1
     lines, notes = [], []
-    for m, f, w in zip(lay.members, lay.frames, lay.inward):
+    for m, f, w, gap in zip(lay.members, lay.frames, lay.inward, lay.standoff):
+        if gap > STANDOFF:
+            notes.append(f"no holes along {m.Label}: the sheet does not rest on it ({gap:.2f} mm off its face)")
+            continue
         face = _face_towards(f, lay.n * sign)
         if getattr(m, f"Closed{face}"):
             notes.append(f"no holes along {m.Label}: the face under the sheet has no slot")
@@ -732,6 +807,7 @@ def fit_warnings(obj, d=None):
     found = [conflict] if conflict else [thermal_fit(obj)[1], cold_fit(obj)]
     if obj.Mount == "On face":
         found.append(hole_play(obj, d)[2])
+        found += standoff_warnings(obj)
     return [w for w in found if w]
 
 
@@ -790,6 +866,8 @@ def panel_info(obj):
             text += orange.format(f"Too loose{_loose_at(obj)}: " + html.escape(cold.split(": ", 1)[1]))
         text += grey.format("Slide the sheet in before fitting the last profile around it")
     else:
+        for floating in standoff_warnings(obj):
+            text += orange.format(html.escape(floating.split(": ", 1)[1]))
         need, play, warning = hole_play(obj, d)
         if warning:
             text += orange.format(html.escape(warning.split(": ", 1)[1]))

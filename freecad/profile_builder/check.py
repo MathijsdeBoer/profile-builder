@@ -11,7 +11,7 @@ from collections import OrderedDict
 import FreeCAD as App
 import Part
 
-from . import cutlist, feature, geometry, joints, panels, pricing
+from . import cutlist, feature, geometry, joints, panels, pricing, skeleton
 
 SEVERITIES = ("Error", "Warning", "Info")
 CLASH_VOLUME = 1.0  # mm³: less is taken as faces that only touch
@@ -312,6 +312,29 @@ def bare_edges(doc):
     return found
 
 
+def box_frames(doc):
+    """Box frames whose profiles no longer give the size their skeleton asks for.
+
+    The skeleton sizes itself from the sections on each side, but not from a
+    profile moved off its line (a section offset from Align slots, an anchor or
+    a spin) or from a changed joint rule.
+    """
+    found = []
+    for obj in doc.Objects:
+        if not skeleton.is_skeleton(obj) or not obj.isValid():
+            continue
+        measured = skeleton.measured_size(obj)
+        requested = (obj.Width.Value, obj.Depth.Value, obj.Height.Value)
+        if measured is None or all(abs(a - b) <= 0.01 for a, b in zip(measured, requested)):
+            continue
+        actual, wanted = (" × ".join(length(value) for value in size) for size in (measured, requested))
+        names = [obj.Name] + [member.Name for on_edge in skeleton.members(obj).values() for member in on_edge]
+        found.append(Finding("Warning", f"{obj.Label}: the frame measures {actual}, not the requested "
+                             f"{obj.SizeMode.lower()} size {wanted}. A section offset (Align slots), anchor, "
+                             "spin or joint rule moved a profile", names))
+    return found
+
+
 def overall(doc):
     """The outside size of all profiles and panels."""
     box = None
@@ -325,7 +348,7 @@ def overall(doc):
 
 
 CHECKS = (broken, duplicates, unjoined, clashes, panel_fit, carriages, long_pieces, similar_lengths, bare_edges,
-          overall)
+          box_frames, overall)
 QUICK = (broken, duplicates, unjoined)  # cheap enough to run with every cut list
 
 

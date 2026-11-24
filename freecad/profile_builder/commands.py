@@ -316,7 +316,8 @@ class AlignSlots:
                 "ProfileBuilder_AlignSlots",
                 "Ctrl-select the inside of one slot on each of two profiles, then activate. "
                 "The profile picked first slides along its section so its slot lines up with the second. "
-                "Sketch edges, spin and length stay fixed."),
+                "Its sketch edge and spin stay fixed. Joint trims follow the shifted section, so the "
+                "lengths of mitered or butting profiles can change."),
         }
 
     def IsActive(self):

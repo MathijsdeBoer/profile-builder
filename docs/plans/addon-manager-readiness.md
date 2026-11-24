@@ -19,7 +19,7 @@ Done on 2026-09-30:
 
 A review found and fixed: CI would have crashed on the headless runners (tests that open a QApplication now draw off screen), the translation tool emptied a language file before reading it, amounts on Qt 5 still lost cents above 131072 (single-precision overload) and ignored native digits, seven property tooltips were built at run time and so could never be translated, and the workbench name was never looked up. All suites were then run headless on FreeCAD 1.0.2 and 1.1.4 in WSL, as CI runs them.
 
-Not done: the actual translations, which need translators; messages in the report view, the cut list and the frame check findings are still English only; and a submission to the FreeCAD addon index, which is the maintainer's call.
+Not done: the actual translations, which need translators; messages in the report view, the cut list and the frame check findings are still English only; and a submission to the FreeCAD addon index, which is the maintainer's call. Until then, the README explains how to install through the Addon Manager as a custom repository. Version 0.3.0 (2026-11-11) is the first tagged release.
 
 ## Problem
 
