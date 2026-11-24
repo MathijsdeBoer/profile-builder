@@ -607,8 +607,8 @@ wrong, overlap, clash = fit_report(wide)
 check(br.Count == 2 and across == [0.0] and not br.Notes and not wrong and overlap < 1e-3 and clash < 1e-3,
       f"SlotsPerBracket 2: one double bracket, centred between the two slots, keys in both "
       f"({br.Count}, {across}, {br.Notes}, {wrong[:2]}, {overlap:.4f})")
-found, notes, corners = brackets._spots(br, br.Joints, brackets.FrameInfo(br.Joints))
-check(len(found) == br.Count and not notes and set(corners) == set(br.Corners),
+found, notes, corner_keys = brackets._spots(br, br.Joints, brackets.FrameInfo(br.Joints))
+check(len(found) == br.Count and not notes and set(corner_keys) == set(br.Corners),
       f"SlotsPerBracket 2: shared corner lookup uses grouped placements ({len(found)}, {notes})")
 br.SlotsPerBracket = 3
 doc.recompute()
