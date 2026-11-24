@@ -58,6 +58,12 @@ class PropertyTaskPanel:
         elif kind == "App::PropertyString":
             w = QtWidgets.QLineEdit(value)
             w.editingFinished.connect(self.changed)
+        elif kind in ("App::PropertyInteger", "App::PropertyIntegerConstraint"):
+            w = QtWidgets.QSpinBox()
+            w.setRange(-1000000, 1000000)  # a constraint property clamps the value itself
+            w.setValue(value)
+            w.setKeyboardTracking(False)
+            w.valueChanged.connect(self.changed)
         else:
             w = QtWidgets.QDoubleSpinBox()
             unit = {"App::PropertyLength": " mm", "App::PropertyDistance": " mm",

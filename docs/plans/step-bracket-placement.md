@@ -46,6 +46,10 @@ Done:
     when they reach equally far. The whole frame counts, not only the selected joints, so a shelf rail
     low in a closed frame or an off-centre middle post gets brackets on both sides. "All open faces"
     always places both.
+    "Outer faces" places them only on the sides "Inner faces" leaves out, such as towards the free
+    ends of the side rails of an H-shaped frame. Corners where a profile ends follow no rule.
+  - `SlotsPerBracket`: one bracket over that many neighbouring slots, centred between them (a double
+    bracket on the 80 mm face of a 4080). Slots that do not divide into such groups get a note.
 - **Calibration** (`brackets.calibrate`, command **Calibrate bracket**, and **Brackets...** itself): the
   user picks the two contact faces, first the one on the profile that ends at the joint. The origin
   goes on the line where their planes meet, in the middle of the whole part's width, so a key split

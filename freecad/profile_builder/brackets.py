@@ -32,9 +32,9 @@ from . import feature, joints, panels
 V = App.Vector
 
 TYPE = "ProfileBuilder::Brackets"
-RULES = ("Inner faces", "All open faces")
+RULES = ("Inner faces", "All open faces", "Outer faces")  # saved in documents: only append
 STYLES = ("Corner", "End plate")
-FIELDS = ("Rule", "AllJoints", "SkipClaimed", "SwapLegs", "SlotOffset", "Item", "ArticleNumber")
+FIELDS = ("Rule", "AllJoints", "SkipClaimed", "SlotsPerBracket", "SwapLegs", "SlotOffset", "Item", "ArticleNumber")
 PLATE_FIELDS = ("AllJoints", "SkipClaimed", "PerSlot", "PlateOffset", "Item", "ArticleNumber")
 SLOT_TOLERANCE = 0.5  # mm: the slots of the two contact faces must line up this well
 FLUSH = 0.5  # mm: the faces of a profile and the one it butts must lie in one plane for an end plate
@@ -149,13 +149,15 @@ def face_slots(obj, frame, normal, across):
     return [k * (start + (i + 0.5) * cell) for i in range(count)]
 
 
-def _corner(vertex, first, first_frame, a, second, second_frame, n):
+def _corner(vertex, first, first_frame, a, second, second_frame, n, span=1):
     """(bracket placements, note) for the corner between two profiles at a joint.
 
     ``first`` runs from the joint in direction ``a``; leg 1 lies on its face
     that faces ``n``. Leg 2 lies on the face of ``second`` that faces ``a`` and
-    runs along ``n``. One bracket goes on each slot that lines up on both faces.
-    A closed face gets none; slots that do not line up get a note.
+    runs along ``n``. One bracket goes on each slot that lines up on both faces,
+    or with ``span`` > 1 one on each run of that many neighbouring slots, centred
+    between them. A closed face gets none; slots that do not line up, or too few
+    for the span, get a note.
     """
     across = a.cross(n)
     across.normalize()
@@ -167,11 +169,18 @@ def _corner(vertex, first, first_frame, a, second, second_frame, n):
     if not mine or not theirs:
         return [], None  # a closed face
     corner = vertex + a * second_frame.support(a) + n * first_frame.support(n)
-    found = [_placement(corner + across * ((s + t) / 2), a, n)
-             for s in mine for t in theirs if abs(s - t) <= SLOT_TOLERANCE]
-    if not found:
+    shared = sorted((s + t) / 2 for s in mine for t in theirs if abs(s - t) <= SLOT_TOLERANCE)
+    if not shared:
         return [], f"the slots of {first.Label} and {second.Label} do not line up, so that corner gets no bracket"
-    return found, None
+    span = max(1, span)
+    groups = [shared[i:i + span] for i in range(0, len(shared) - span + 1, span)]
+    found = [_placement(corner + across * (sum(g) / len(g)), a, n) for g in groups]
+    note = None
+    if len(shared) % span:
+        note = (f"{len(shared)} slot(s) of {first.Label} and {second.Label} line up in that corner, which "
+                f"does not divide into brackets of {span} slots; " +
+                ("that corner gets no bracket" if not found else "the last slot(s) get no bracket"))
+    return found, note
 
 
 def _plate(vertex, first, first_frame, a, through, through_frame, m, per_slot, offset):
@@ -302,14 +311,15 @@ def frame_of(joint_list):
     return list(found_joints.values()), list(found_profiles.values())
 
 
-def joint_spots(joint, rule, context, style="Corner", per_slot=False, offset=0.0):
+def joint_spots(joint, rule, context, style="Corner", per_slot=False, offset=0.0, span=1):
     """([(placement, profile on leg 1, profile on leg 2, (corner key, label))], [notes]) for one joint.
 
     Brackets go into every square corner of a butt joint:
     - between a profile that ends at the joint and the one that runs through
       (on the side where that one continues; both sides at a T-junction, or
       with the "Inner faces" rule only the sides facing into the frame,
-      see ``FrameInfo.inner_sides``; ``context`` is the FrameInfo);
+      see ``FrameInfo.inner_sides``, and with "Outer faces" only the others;
+      ``context`` is the FrameInfo);
     - between two profiles that end square to each other against the same
       profile, when both ends reach the other's face.
 
@@ -317,6 +327,7 @@ def joint_spots(joint, rule, context, style="Corner", per_slot=False, offset=0.0
     instead, across both profiles (see ``_plate``; ``per_slot`` and ``offset`` are its options). Not on a
     side where another profile ends on the same face of the one running through, or where one ends on
     its far face: those plates would overlap.
+    ``span`` is the number of neighbouring slots one corner bracket covers (see ``_corner``).
     """
     if not joint.isValid():
         return [], [f"{joint.Label} has an error, so it gets no brackets"]
@@ -338,7 +349,7 @@ def joint_spots(joint, rule, context, style="Corner", per_slot=False, offset=0.0
         found.extend((pl, first, second, corner) for pl in placements)
 
     def add(first, first_frame, a, second, second_frame, n):
-        placements, note = _corner(vertex, first, first_frame, a, second, second_frame, n)
+        placements, note = _corner(vertex, first, first_frame, a, second, second_frame, n, span)
         spot(placements, first, second, n)
         if note:
             notes.append(f"{joint.Label}: {note}")
@@ -384,8 +395,9 @@ def joint_spots(joint, rule, context, style="Corner", per_slot=False, offset=0.0
         tf = frames[through.Name]
         # Where the through profile continues: one way from a corner, both ways at a T-junction.
         sides = [tf.z, tf.z * -1] if through_end is None else [joints._away(tf, through_end)]
-        if rule == "Inner faces" and len(sides) > 1:
-            sides = context.inner_sides(joint, through, vertex, sides)
+        if rule in ("Inner faces", "Outer faces") and len(sides) > 1:
+            inner = context.inner_sides(joint, through, vertex, sides)
+            sides = inner if rule == "Inner faces" else [n for n in sides if n not in inner]
         for obj, end, a in butting:
             if abs(a.dot(tf.z)) > joints.PERPENDICULAR:
                 continue  # in line with it: no corner
@@ -506,7 +518,8 @@ def _spots(obj, joint_list, context):
     skipped = set(obj.SkippedCorners)
     for joint in joint_list:
         try:
-            spots, why = joint_spots(joint, obj.Rule, context, obj.Style, obj.PerSlot, obj.PlateOffset.Value)
+            spots, why = joint_spots(joint, obj.Rule, context, obj.Style, obj.PerSlot, obj.PlateOffset.Value,
+                                     obj.SlotsPerBracket)
         except ValueError as e:
             spots, why = [], [f"{joint.Label} gets no brackets: {e}"]
         for pl, a, b, (key, label) in spots:
@@ -560,7 +573,9 @@ class Brackets:
         add("App::PropertyEnumeration", "Rule", "Brackets",
             "Inner faces: at a T-junction, only on the sides facing into the frame, where the profile "
             "running through carries on to another joint; not on a free stub, such as a post standing out "
-            "above a rail. All open faces: on both sides.", list(RULES))
+            "above a rail. All open faces: on both sides. Outer faces: only on the sides the Inner faces "
+            "rule leaves out, such as towards the free ends of the side rails of an H-shaped frame. "
+            "Corners where a profile ends, and between two profiles that end, follow no rule.", list(RULES))
         add("App::PropertyBool", "AllJoints", "Brackets",
             "Place brackets at every joint in the document, also at joints made later", False)
         add("App::PropertyEnumeration", "Style", "Brackets",
@@ -570,6 +585,9 @@ class Brackets:
         add("App::PropertyBool", "PerSlot", "Brackets",
             "End plate: one plate on each slot of the butting profile's face, instead of one plate over "
             "the middle of the face (a plate across several slots)", False)
+        add("App::PropertyIntegerConstraint", "SlotsPerBracket", "Brackets",
+            "How many neighbouring slots one bracket covers, for example 2 for a double bracket on the 80 mm "
+            "face of a 4080; it goes centred between them", (1, 1, 8, 1))
         add("App::PropertyDistance", "PlateOffset", "Brackets",
             "End plate: move the plate along the butting profile, away from the far face of the profile it "
             "butts (the plate's bar end is flush with that face at 0)", 0.0)

@@ -58,6 +58,16 @@ def l_bracket():
     return leg1.fuse([leg2, key1, key2]).removeSplitter()
 
 
+def double_bracket(pitch=20.0):
+    """A bracket over two neighbouring slots, ``pitch`` apart: two keys under each leg, off its middle."""
+    width = pitch + WIDTH
+    legs = [Part.makeBox(LEG1, THICK, width, V(0, 0, -width / 2)), Part.makeBox(THICK, LEG2, width, V(0, 0, -width / 2))]
+    for z in (-pitch / 2, pitch / 2):
+        legs += [Part.makeBox(LEG1 - 3, KEY_DEPTH, KEY, V(3, -KEY_DEPTH, z - KEY / 2)),
+                 Part.makeBox(KEY_DEPTH, LEG2 - 3, KEY, V(-KEY_DEPTH, 3, z - KEY / 2))]
+    return legs[0].fuse(legs[1:]).removeSplitter()
+
+
 def faces_where(shape, frame, test):
     """Indices (1-based) of the faces whose bounding box in the bracket frame passes ``test``."""
     back = frame.inverse().toMatrix()
@@ -589,6 +599,48 @@ across = sorted({round(pl.Base.y, 3) for pl in br.PlacementList})
 check(br.Count == 4 and across == [-10.0, 10.0],
       f"two slots per face: two brackets side by side ({br.Count}, {across})")
 check(not wrong and overlap < 1e-3 and clash < 1e-3, f"two slots per face: they fit ({wrong[:2]}, {overlap:.4f})")
+br.SlotsPerBracket = 2
+part.Shape = LOCAL = double_bracket()
+doc.recompute()
+across = sorted({round(pl.Base.y, 3) + 0.0 for pl in br.PlacementList})
+wrong, overlap, clash = fit_report(wide)
+check(br.Count == 2 and across == [0.0] and not br.Notes and not wrong and overlap < 1e-3 and clash < 1e-3,
+      f"SlotsPerBracket 2: one double bracket, centred between the two slots, keys in both "
+      f"({br.Count}, {across}, {br.Notes}, {wrong[:2]}, {overlap:.4f})")
+found, notes, corner_keys = brackets._spots(br, br.Joints, brackets.FrameInfo(br.Joints))
+check(len(found) == br.Count and not notes and set(corner_keys) == set(br.Corners),
+      f"SlotsPerBracket 2: shared corner lookup uses grouped placements ({len(found)}, {notes})")
+br.SlotsPerBracket = 3
+doc.recompute()
+check(br.Count == 0 and len(br.Notes) == 2 and all("brackets of 3 slots" in n for n in br.Notes),
+      f"SlotsPerBracket 3 on two slots: no bracket, and a note ({br.Count}, {br.Notes})")
+
+# ---- an H-shaped frame lying flat, its bridge doubled (=), profiles standing on the short side -------
+# Inner faces: between the two crossbars. Outer faces: towards the free ends of the side rails.
+
+doc = App.newDocument("hframe")
+lines = lines_object("H", [((0, 0, 0), (600, 0, 0)), ((0, 400, 0), (600, 400, 0)),
+                           ((200, 0, 0), (200, 400, 0)), ((400, 0, 0), (400, 400, 0))])
+doc.recompute()
+tall = [feature.make_profile("20-6", 1, 2, 100, doc, edge=(lines, f"Edge{i + 1}")) for i in range(4)]
+doc.recompute()
+joints.create_joints(doc, tall, "Butt", "Longest")
+doc.recompute()
+part = doc.addObject("Part::Feature", "Bracket")
+part.Shape = LOCAL = double_bracket()
+br = brackets.make_brackets(doc, part, brackets.all_joints(doc), SlotsPerBracket=2)
+doc.recompute()
+check(all(abs(p.Shape.BoundBox.ZLength - 40) < 1e-6 for p in tall), "H frame: the profiles stand 40 tall")
+seen = {}
+for rule in brackets.RULES:
+    br.Rule = rule
+    doc.recompute()
+    wrong, overlap, clash = fit_report(tall)
+    seen[rule] = (br.Count, sorted({round(pl.Base.x) for pl in br.PlacementList}),
+                  sorted({round(pl.Base.z, 3) + 0.0 for pl in br.PlacementList}), not wrong and overlap < 1e-3)
+check(seen["Inner faces"] == (4, [210, 390], [0.0], True), f"H frame, inner faces: between the crossbars ({seen})")
+check(seen["Outer faces"] == (4, [190, 410], [0.0], True), f"H frame, outer faces: towards the rail ends ({seen})")
+check(seen["All open faces"][0] == 8, f"H frame, all open faces: both sides ({seen})")
 
 # ---- a real STEP file, exported and imported again as a supplier's file would be ---------------------
 

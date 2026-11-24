@@ -269,6 +269,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../brackets.py"/>
+        <source>How many neighbouring slots one bracket covers, for example 2 for a double bracket on the 80 mm face of a 4080; it goes centred between them</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../panels.py"/>
         <source>How much the cut sheet may differ from its size, ± (laser or CNC about 0.1-0.2 mm, a saw 0.5-1 mm)</source>
         <translation type="unfinished"></translation>
@@ -285,7 +290,7 @@
     </message>
     <message>
         <location filename="../../brackets.py"/>
-        <source>Inner faces: at a T-junction, only on the sides facing into the frame, where the profile running through carries on to another joint; not on a free stub, such as a post standing out above a rail. All open faces: on both sides.</source>
+        <source>Inner faces: at a T-junction, only on the sides facing into the frame, where the profile running through carries on to another joint; not on a free stub, such as a post standing out above a rail. All open faces: on both sides. Outer faces: only on the sides the Inner faces rule leaves out, such as towards the free ends of the side rails of an H-shaped frame. Corners where a profile ends, and between two profiles that end, follow no rule.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
